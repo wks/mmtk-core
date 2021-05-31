@@ -12,7 +12,9 @@ use enum_map::EnumMap;
 
 lazy_static! {
     pub static ref ALLOCATOR_MAPPING: EnumMap<AllocationType, AllocatorSelector> = enum_map! {
-        AllocationType::Default | AllocationType::Immortal | AllocationType::Code | AllocationType::ReadOnly | AllocationType::Los => AllocatorSelector::BumpPointer(0),
+        AllocationType::Default => AllocatorSelector::BumpPointer(0),
+        AllocationType::Immortal | AllocationType::Code | AllocationType::ReadOnly => AllocatorSelector::BumpPointer(1),
+        AllocationType::Los => AllocatorSelector::LargeObject(0),
     };
 }
 
@@ -24,12 +26,14 @@ pub fn create_ts_mutator<VM: VMBinding>(
     mutator_tls: VMMutatorThread,
     plan: &'static dyn Plan<VM = VM>,
 ) -> Mutator<VM> {
+    let ts_plan = &plan.downcast_ref::<TripleSpace<VM>>().unwrap();
     let config = MutatorConfig {
         allocator_mapping: &*ALLOCATOR_MAPPING,
-        space_mapping: box vec![(
-            AllocatorSelector::BumpPointer(0),
-            &plan.downcast_ref::<TripleSpace<VM>>().unwrap().immortal_space,
-        )],
+        space_mapping: box vec![
+            (AllocatorSelector::BumpPointer(0), &ts_plan.youngspace),
+            (AllocatorSelector::BumpPointer(1), ts_plan.common.get_immortal()),
+            (AllocatorSelector::LargeObject(0), ts_plan.common.get_los()),
+        ],
         prepare_func: &triplespace_mutator_noop,
         release_func: &triplespace_mutator_noop,
     };
