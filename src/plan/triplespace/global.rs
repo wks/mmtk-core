@@ -1,14 +1,15 @@
+use super::gc_work::{TSCopyContext, TSProcessEdges};
 use crate::mmtk::MMTK;
-use crate::plan::global::{BasePlan, CommonPlan, NoCopy};
+use crate::plan::global::{BasePlan, CommonPlan};
+use crate::plan::global::GcStatus;
 use super::mutator::ALLOCATOR_MAPPING;
 use crate::plan::AllocationSemantics;
 use crate::plan::Plan;
 use crate::plan::PlanConstraints;
 use crate::policy::space::Space;
 use crate::policy::copyspace::CopySpace;
-use crate::scheduler::GCWorkerLocal;
-use crate::scheduler::GCWorkerLocalPtr;
-use crate::scheduler::MMTkScheduler;
+use crate::scheduler::gc_work::*;
+use crate::scheduler::*;
 use crate::util::alloc::allocators::AllocatorSelector;
 use crate::util::heap::layout::heap_layout::Mmapper;
 use crate::util::heap::layout::heap_layout::VMMap;
@@ -23,6 +24,10 @@ use crate::vm::VMBinding;
 use enum_map::EnumMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(feature = "sanity")]
+use crate::util::sanity::sanity_checker::*;
+
+pub const ALLOC_TS: AllocationSemantics = AllocationSemantics::Default;
 
 pub struct TripleSpace<VM: VMBinding> {
     pub hi: AtomicBool,
@@ -52,7 +57,7 @@ impl<VM: VMBinding> Plan for TripleSpace<VM> {
         tls: VMWorkerThread,
         mmtk: &'static MMTK<Self::VM>,
     ) -> GCWorkerLocalPtr {
-        let mut c = NoCopy::new(mmtk);
+        let mut c = TSCopyContext::new(mmtk);
         c.init(tls);
         GCWorkerLocalPtr::new(c)
     }
@@ -82,20 +87,53 @@ impl<VM: VMBinding> Plan for TripleSpace<VM> {
         &self.common
     }
 
-    fn prepare(&mut self, _tls: VMWorkerThread) {
-        unreachable!()
+    fn prepare(&mut self, tls: VMWorkerThread) {
+        self.common.prepare(tls, true);
+
+        let old_hi = self.hi.load(Ordering::SeqCst);
+        let hi = !old_hi;
+        self.hi.store(hi, Ordering::SeqCst); // flip the semi-spaces
+
+        // prepare each of the collected regions
+        self.copyspace0.prepare(hi);
+        self.copyspace1.prepare(!hi);
+        self.youngspace.prepare(true);
     }
 
-    fn release(&mut self, _tls: VMWorkerThread) {
-        unreachable!()
+    fn release(&mut self, tls: VMWorkerThread) {
+        self.common.release(tls, true);
+        // release the collected region
+        self.fromspace().release();
+        self.youngspace.release();
     }
 
     fn get_allocator_mapping(&self) -> &'static EnumMap<AllocationSemantics, AllocatorSelector> {
         &*ALLOCATOR_MAPPING
     }
 
-    fn schedule_collection(&'static self, _scheduler: &MMTkScheduler<VM>) {
-        unreachable!("GC triggered in the incomplete triplespace")
+    fn schedule_collection(&'static self, scheduler: &MMTkScheduler<VM>) {
+        self.base().set_collection_kind();
+        self.base().set_gc_status(GcStatus::GcPrepare);
+        self.common()
+            .schedule_common::<TSProcessEdges<VM>>(&TS_CONSTRAINTS, scheduler);
+        // Stop & scan mutators (mutator scanning can happen before STW)
+        scheduler.work_buckets[WorkBucketStage::Unconstrained]
+            .add(StopMutators::<TSProcessEdges<VM>>::new());
+        // Prepare global/collectors/mutators
+        scheduler.work_buckets[WorkBucketStage::Prepare]
+            .add(Prepare::<Self, TSCopyContext<VM>>::new(self));
+        // Release global/collectors/mutators
+        scheduler.work_buckets[WorkBucketStage::Release]
+            .add(Release::<Self, TSCopyContext<VM>>::new(self));
+        // Scheduling all the gc hooks of analysis routines. It is generally recommended
+        // to take advantage of the scheduling system we have in place for more performance
+        #[cfg(feature = "analysis")]
+        scheduler.work_buckets[WorkBucketStage::Unconstrained].add(GcHookWork);
+        // Resume mutators
+        #[cfg(feature = "sanity")]
+        scheduler.work_buckets[WorkBucketStage::Final]
+            .add(ScheduleSanityGC::<Self, TSCopyContext<VM>>::new(self));
+        scheduler.set_finalizer(Some(EndOfGC));
     }
 
     fn get_collection_reserve(&self) -> usize {
