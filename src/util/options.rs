@@ -21,6 +21,7 @@ custom_derive! {
         SemiSpace,
         GenCopy,
         MarkSweep,
+        TripleSpace,
         PageProtect,
     }
 }

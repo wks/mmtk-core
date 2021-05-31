@@ -129,6 +129,9 @@ pub fn create_mutator<VM: VMBinding>(
         PlanSelector::PageProtect => {
             crate::plan::pageprotect::mutator::create_pp_mutator(tls, &*mmtk.plan)
         }
+        PlanSelector::TripleSpace => {
+            crate::plan::triplespace::mutator::create_ts_mutator(tls, &*mmtk.plan)
+        }
     })
 }
 
@@ -150,6 +153,9 @@ pub fn create_plan<VM: VMBinding>(
             vm_map, mmapper, options,
         )),
         PlanSelector::PageProtect => Box::new(crate::plan::pageprotect::PageProtect::new(
+            vm_map, mmapper, options,
+        )),
+        PlanSelector::TripleSpace => Box::new(crate::plan::triplespace::TripleSpace::new(
             vm_map, mmapper, options,
         )),
     }
