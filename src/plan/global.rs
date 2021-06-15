@@ -113,6 +113,16 @@ impl<VM: VMBinding> WorkerLocal for NoCopy<VM> {
     }
 }
 
+pub trait PlanFactory<VM: VMBinding> {
+    type PlanType: Plan<VM = VM>;
+
+    fn create_plan(
+        vm_map: &'static VMMap,
+        mmapper: &'static Mmapper,
+        options: Arc<UnsafeOptionsWrapper>,
+    ) -> Self::PlanType;
+}
+
 pub fn create_mutator<VM: VMBinding>(
     tls: VMMutatorThread,
     mmtk: &'static MMTK<VM>,
@@ -136,14 +146,14 @@ pub fn create_plan<VM: VMBinding>(
     options: Arc<UnsafeOptionsWrapper>,
 ) -> Box<dyn Plan<VM = VM>> {
     match plan {
-        PlanSelector::NoGC => Box::new(crate::plan::nogc::NoGC::new(vm_map, mmapper, options)),
-        PlanSelector::SemiSpace => Box::new(crate::plan::semispace::SemiSpace::new(
+        PlanSelector::NoGC => Box::new(crate::plan::nogc::global::NoGCPlanFactory::create_plan(vm_map, mmapper, options)),
+        PlanSelector::SemiSpace => Box::new(crate::plan::semispace::global::SemiSpacePlanFactory::create_plan(
             vm_map, mmapper, options,
         )),
         PlanSelector::GenCopy => {
-            Box::new(crate::plan::gencopy::GenCopy::new(vm_map, mmapper, options))
+            Box::new(crate::plan::gencopy::global::GenCopyPlanFactory::create_plan(vm_map, mmapper, options))
         }
-        PlanSelector::MarkSweep => Box::new(crate::plan::marksweep::MarkSweep::new(
+        PlanSelector::MarkSweep => Box::new(crate::plan::marksweep::global::MarkSweepPlanFactory::create_plan(
             vm_map, mmapper, options,
         )),
     }

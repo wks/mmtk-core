@@ -3,6 +3,7 @@ use crate::plan::global::BasePlan;
 use crate::plan::global::CommonPlan;
 use crate::plan::global::GcStatus;
 use crate::plan::global::NoCopy;
+use crate::plan::global::PlanFactory;
 use crate::plan::marksweep::gc_work::MSProcessEdges;
 use crate::plan::marksweep::mutator::ALLOCATOR_MAPPING;
 use crate::plan::AllocationSemantics;
@@ -121,12 +122,16 @@ impl<VM: VMBinding> Plan for MarkSweep<VM> {
     }
 }
 
-impl<VM: VMBinding> MarkSweep<VM> {
-    pub fn new(
+pub struct MarkSweepPlanFactory;
+
+impl <VM: VMBinding> PlanFactory<VM> for MarkSweepPlanFactory {
+    type PlanType = MarkSweep<VM>;
+
+    fn create_plan(
         vm_map: &'static VMMap,
         mmapper: &'static Mmapper,
         options: Arc<UnsafeOptionsWrapper>,
-    ) -> Self {
+    ) -> MarkSweep<VM> {
         let heap = HeapMeta::new(HEAP_START, HEAP_END);
         let global_metadata_specs = SideMetadataContext::new_global_specs(&[]);
 
@@ -152,7 +157,9 @@ impl<VM: VMBinding> MarkSweep<VM> {
 
         res
     }
+}
 
+impl<VM: VMBinding> MarkSweep<VM> {
     pub fn ms_space(&self) -> &MallocSpace<VM> {
         &self.ms
     }

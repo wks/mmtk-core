@@ -2,6 +2,7 @@ use super::gc_work::{SSCopyContext, SSProcessEdges};
 use crate::mmtk::MMTK;
 use crate::plan::global::CommonPlan;
 use crate::plan::global::GcStatus;
+use crate::plan::global::PlanFactory;
 use crate::plan::semispace::mutator::ALLOCATOR_MAPPING;
 use crate::plan::AllocationSemantics;
 use crate::plan::Plan;
@@ -142,12 +143,16 @@ impl<VM: VMBinding> Plan for SemiSpace<VM> {
     }
 }
 
-impl<VM: VMBinding> SemiSpace<VM> {
-    pub fn new(
+pub struct SemiSpacePlanFactory;
+
+impl <VM: VMBinding> PlanFactory<VM> for SemiSpacePlanFactory {
+    type PlanType = SemiSpace<VM>;
+
+    fn create_plan(
         vm_map: &'static VMMap,
         mmapper: &'static Mmapper,
         options: Arc<UnsafeOptionsWrapper>,
-    ) -> Self {
+    ) -> SemiSpace<VM> {
         let mut heap = HeapMeta::new(HEAP_START, HEAP_END);
         let global_metadata_specs = SideMetadataContext::new_global_specs(&[]);
 
@@ -195,7 +200,9 @@ impl<VM: VMBinding> SemiSpace<VM> {
 
         res
     }
+}
 
+impl<VM: VMBinding> SemiSpace<VM> {
     pub fn tospace(&self) -> &CopySpace<VM> {
         if self.hi.load(Ordering::SeqCst) {
             &self.copyspace1

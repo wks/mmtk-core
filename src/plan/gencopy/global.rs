@@ -3,7 +3,7 @@ use super::{
     gc_work::{GenCopyCopyContext, GenCopyMatureProcessEdges, GenCopyNurseryProcessEdges},
     LOGGING_META,
 };
-use crate::plan::global::BasePlan;
+use crate::plan::global::{BasePlan, PlanFactory};
 use crate::plan::global::CommonPlan;
 use crate::plan::global::GcStatus;
 use crate::plan::AllocationSemantics;
@@ -195,12 +195,16 @@ impl<VM: VMBinding> Plan for GenCopy<VM> {
     }
 }
 
-impl<VM: VMBinding> GenCopy<VM> {
-    pub fn new(
+pub struct GenCopyPlanFactory;
+
+impl <VM: VMBinding> PlanFactory<VM> for GenCopyPlanFactory {
+    type PlanType = GenCopy<VM>;
+
+    fn create_plan(
         vm_map: &'static VMMap,
         mmapper: &'static Mmapper,
         options: Arc<UnsafeOptionsWrapper>,
-    ) -> Self {
+    ) -> GenCopy<VM> {
         let mut heap = HeapMeta::new(HEAP_START, HEAP_END);
         let gencopy_specs = if super::ACTIVE_BARRIER == BarrierSelector::ObjectBarrier {
             vec![LOGGING_META]
@@ -267,7 +271,9 @@ impl<VM: VMBinding> GenCopy<VM> {
 
         res
     }
+}
 
+impl<VM: VMBinding> GenCopy<VM> {
     fn request_full_heap_collection(&self) -> bool {
         // For barrier overhead measurements, we always do full gc in nursery collections.
         if super::FULL_NURSERY_GC {
