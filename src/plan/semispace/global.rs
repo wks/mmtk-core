@@ -2,6 +2,7 @@ use super::gc_work::{SSCopyContext, SSProcessEdges};
 use crate::mmtk::MMTK;
 use crate::plan::global::CommonPlan;
 use crate::plan::global::GcStatus;
+use crate::plan::global::PlanFactory;
 use crate::plan::semispace::mutator::ALLOCATOR_MAPPING;
 use crate::plan::AllocationSemantics;
 use crate::plan::Plan;
@@ -24,6 +25,7 @@ use crate::util::options::UnsafeOptionsWrapper;
 use crate::util::sanity::sanity_checker::*;
 use crate::util::side_metadata::{SideMetadataContext, SideMetadataSanity};
 use crate::{plan::global::BasePlan, vm::VMBinding};
+use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -142,12 +144,21 @@ impl<VM: VMBinding> Plan for SemiSpace<VM> {
     }
 }
 
-impl<VM: VMBinding> SemiSpace<VM> {
-    pub fn new(
+pub struct SemiSpacePlanFactory<VM: VMBinding>(PhantomData<VM>);
+
+impl <VM: VMBinding> SemiSpacePlanFactory<VM> {
+    pub fn new() -> Box<SemiSpacePlanFactory<VM>> {
+        Box::new(SemiSpacePlanFactory(PhantomData))
+    }
+}
+
+impl <VM: VMBinding> PlanFactory<VM> for SemiSpacePlanFactory<VM> {
+    fn create_plan(
+        &self,
         vm_map: &'static VMMap,
         mmapper: &'static Mmapper,
         options: Arc<UnsafeOptionsWrapper>,
-    ) -> Self {
+    ) -> Box<dyn Plan<VM = VM>> {
         let mut heap = HeapMeta::new(HEAP_START, HEAP_END);
         let global_metadata_specs = SideMetadataContext::new_global_specs(&[]);
 
@@ -193,9 +204,11 @@ impl<VM: VMBinding> SemiSpace<VM> {
                 .verify_side_metadata_sanity(&mut side_metadata_sanity_checker);
         }
 
-        res
+        Box::new(res)
     }
+}
 
+impl<VM: VMBinding> SemiSpace<VM> {
     pub fn tospace(&self) -> &CopySpace<VM> {
         if self.hi.load(Ordering::SeqCst) {
             &self.copyspace1

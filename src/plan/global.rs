@@ -113,6 +113,24 @@ impl<VM: VMBinding> WorkerLocal for NoCopy<VM> {
     }
 }
 
+pub trait PlanFactory<VM: VMBinding> {
+    fn create_plan(
+        &self,
+        vm_map: &'static VMMap,
+        mmapper: &'static Mmapper,
+        options: Arc<UnsafeOptionsWrapper>,
+    ) -> Box<dyn Plan<VM = VM>>;
+}
+
+pub fn get_plan_factory<VM: VMBinding>(plan: PlanSelector) -> Box<dyn PlanFactory<VM>> {
+    match plan {
+        PlanSelector::NoGC => crate::plan::nogc::global::NoGCPlanFactory::new(),
+        PlanSelector::SemiSpace => crate::plan::semispace::global::SemiSpacePlanFactory::new(),
+        PlanSelector::GenCopy => crate::plan::gencopy::global::GenCopyPlanFactory::new(),
+        PlanSelector::MarkSweep => crate::plan::marksweep::global::MarkSweepPlanFactory::new(),
+    }
+}
+
 pub fn create_mutator<VM: VMBinding>(
     tls: VMMutatorThread,
     mmtk: &'static MMTK<VM>,
@@ -135,18 +153,7 @@ pub fn create_plan<VM: VMBinding>(
     mmapper: &'static Mmapper,
     options: Arc<UnsafeOptionsWrapper>,
 ) -> Box<dyn Plan<VM = VM>> {
-    match plan {
-        PlanSelector::NoGC => Box::new(crate::plan::nogc::NoGC::new(vm_map, mmapper, options)),
-        PlanSelector::SemiSpace => Box::new(crate::plan::semispace::SemiSpace::new(
-            vm_map, mmapper, options,
-        )),
-        PlanSelector::GenCopy => {
-            Box::new(crate::plan::gencopy::GenCopy::new(vm_map, mmapper, options))
-        }
-        PlanSelector::MarkSweep => Box::new(crate::plan::marksweep::MarkSweep::new(
-            vm_map, mmapper, options,
-        )),
-    }
+    get_plan_factory(plan).create_plan(vm_map, mmapper, options)
 }
 
 /// A plan describes the global core functionality for all memory management schemes.

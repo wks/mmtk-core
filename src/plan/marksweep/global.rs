@@ -3,6 +3,7 @@ use crate::plan::global::BasePlan;
 use crate::plan::global::CommonPlan;
 use crate::plan::global::GcStatus;
 use crate::plan::global::NoCopy;
+use crate::plan::global::PlanFactory;
 use crate::plan::marksweep::gc_work::MSProcessEdges;
 use crate::plan::marksweep::mutator::ALLOCATOR_MAPPING;
 use crate::plan::AllocationSemantics;
@@ -23,6 +24,7 @@ use crate::util::sanity::sanity_checker::*;
 use crate::util::side_metadata::{SideMetadataContext, SideMetadataSanity};
 use crate::util::VMWorkerThread;
 use crate::vm::VMBinding;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use enum_map::EnumMap;
@@ -121,12 +123,21 @@ impl<VM: VMBinding> Plan for MarkSweep<VM> {
     }
 }
 
-impl<VM: VMBinding> MarkSweep<VM> {
-    pub fn new(
+pub struct MarkSweepPlanFactory<VM: VMBinding>(PhantomData<VM>);
+
+impl <VM: VMBinding> MarkSweepPlanFactory<VM> {
+    pub fn new() -> Box<MarkSweepPlanFactory<VM>> {
+        Box::new(MarkSweepPlanFactory(PhantomData))
+    }
+}
+
+impl <VM: VMBinding> PlanFactory<VM> for MarkSweepPlanFactory<VM> {
+    fn create_plan(
+        &self,
         vm_map: &'static VMMap,
         mmapper: &'static Mmapper,
         options: Arc<UnsafeOptionsWrapper>,
-    ) -> Self {
+    ) -> Box<dyn Plan<VM = VM>> {
         let heap = HeapMeta::new(HEAP_START, HEAP_END);
         let global_metadata_specs = SideMetadataContext::new_global_specs(&[]);
 
@@ -150,9 +161,11 @@ impl<VM: VMBinding> MarkSweep<VM> {
                 .verify_side_metadata_sanity(&mut side_metadata_sanity_checker);
         }
 
-        res
+        Box::new(res)
     }
+}
 
+impl<VM: VMBinding> MarkSweep<VM> {
     pub fn ms_space(&self) -> &MallocSpace<VM> {
         &self.ms
     }

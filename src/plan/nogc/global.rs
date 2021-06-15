@@ -1,5 +1,5 @@
 use crate::mmtk::MMTK;
-use crate::plan::global::{BasePlan, NoCopy};
+use crate::plan::global::{BasePlan, NoCopy, PlanFactory};
 use crate::plan::nogc::mutator::ALLOCATOR_MAPPING;
 use crate::plan::AllocationSemantics;
 use crate::plan::Plan;
@@ -20,6 +20,7 @@ use crate::util::options::UnsafeOptionsWrapper;
 use crate::util::side_metadata::{SideMetadataContext, SideMetadataSanity};
 use crate::vm::VMBinding;
 use enum_map::EnumMap;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 #[cfg(not(feature = "nogc_lock_free"))]
@@ -96,12 +97,21 @@ impl<VM: VMBinding> Plan for NoGC<VM> {
     }
 }
 
-impl<VM: VMBinding> NoGC<VM> {
-    pub fn new(
+pub struct NoGCPlanFactory<VM: VMBinding>(PhantomData<VM>);
+
+impl <VM: VMBinding> NoGCPlanFactory<VM> {
+    pub fn new() -> Box<NoGCPlanFactory<VM>> {
+        Box::new(NoGCPlanFactory(PhantomData))
+    }
+}
+
+impl <VM: VMBinding> PlanFactory<VM> for NoGCPlanFactory<VM> {
+    fn create_plan(
+        &self,
         vm_map: &'static VMMap,
         mmapper: &'static Mmapper,
         options: Arc<UnsafeOptionsWrapper>,
-    ) -> Self {
+    ) -> Box<dyn Plan<VM = VM>> {
         #[cfg(not(feature = "nogc_lock_free"))]
         let mut heap = HeapMeta::new(HEAP_START, HEAP_END);
         #[cfg(feature = "nogc_lock_free")]
@@ -145,6 +155,6 @@ impl<VM: VMBinding> NoGC<VM> {
         res.nogc_space
             .verify_side_metadata_sanity(&mut side_metadata_sanity_checker);
 
-        res
+        Box::new(res)
     }
 }
