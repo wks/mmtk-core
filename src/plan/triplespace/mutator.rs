@@ -1,13 +1,15 @@
-use crate::plan::barriers::NoBarrier;
+use crate::MMTK;
+use crate::plan::barriers::ObjectRememberingBarrier;
 use crate::plan::mutator_context::Mutator;
 use crate::plan::mutator_context::MutatorConfig;
+use crate::plan::triplespace::gc_work::TSProcessEdges;
 use super::TripleSpace;
 use crate::plan::AllocationSemantics as AllocationType;
 use crate::plan::Plan;
 use crate::util::alloc::allocators::{AllocatorSelector, Allocators};
 use crate::util::alloc::BumpAllocator;
 use crate::util::{VMMutatorThread, VMWorkerThread};
-use crate::vm::VMBinding;
+use crate::vm::{ObjectModel, VMBinding};
 use enum_map::enum_map;
 use enum_map::EnumMap;
 
@@ -38,6 +40,7 @@ lazy_static! {
 pub fn create_ts_mutator<VM: VMBinding>(
     mutator_tls: VMMutatorThread,
     plan: &'static dyn Plan<VM = VM>,
+    mmtk: &'static MMTK<VM>,
 ) -> Mutator<VM> {
     let ts_plan = &plan.downcast_ref::<TripleSpace<VM>>().unwrap();
     let config = MutatorConfig {
@@ -53,7 +56,10 @@ pub fn create_ts_mutator<VM: VMBinding>(
 
     Mutator {
         allocators: Allocators::<VM>::new(mutator_tls, plan, &config.space_mapping),
-        barrier: box NoBarrier,
+        barrier: Box::new(ObjectRememberingBarrier::<TSProcessEdges<VM>>::new(
+            mmtk,
+            VM::VMObjectModel::GLOBAL_LOG_BIT_SPEC,
+        )),
         mutator_tls,
         config,
         plan,

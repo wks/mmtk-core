@@ -9,7 +9,7 @@ use crate::plan::PlanConstraints;
 use crate::policy::space::Space;
 use crate::policy::copyspace::CopySpace;
 use crate::scheduler::gc_work::*;
-use crate::scheduler::*;
+use crate::{BarrierSelector, scheduler::*};
 use crate::util::alloc::allocators::AllocatorSelector;
 use crate::util::heap::layout::heap_layout::Mmapper;
 use crate::util::heap::layout::heap_layout::VMMap;
@@ -17,10 +17,10 @@ use crate::util::heap::layout::vm_layout_constants::{HEAP_END, HEAP_START};
 use crate::util::heap::HeapMeta;
 #[allow(unused_imports)]
 use crate::util::heap::VMRequest;
-use crate::util::opaque_pointer::*;
+use crate::util::{metadata, opaque_pointer::*};
 use crate::util::options::UnsafeOptionsWrapper;
 use crate::util::metadata::side_metadata::{SideMetadataContext, SideMetadataSanity};
-use crate::vm::VMBinding;
+use crate::vm::*;
 use enum_map::EnumMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -42,6 +42,7 @@ pub const TS_CONSTRAINTS: PlanConstraints = PlanConstraints {
     gc_header_words: 0,
     moves_objects: true,
     num_specialized_scans: 1,
+    barrier: BarrierSelector::ObjectBarrier,
     ..PlanConstraints::default()
 };
 
@@ -156,7 +157,9 @@ impl<VM: VMBinding> TripleSpace<VM> {
     ) -> Self {
         let mut heap = HeapMeta::new(HEAP_START, HEAP_END);
 
-        let global_metadata_specs = SideMetadataContext::new_global_specs(&[]);
+        let global_metadata_specs = metadata::extract_side_metadata(&[
+            VM::VMObjectModel::GLOBAL_LOG_BIT_SPEC,
+        ]);
 
         let res = TripleSpace {
             hi: AtomicBool::new(false),

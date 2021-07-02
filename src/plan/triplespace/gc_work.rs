@@ -1,3 +1,5 @@
+use atomic::Ordering;
+
 use super::global::TripleSpace;
 use crate::plan::CopyContext;
 use crate::plan::PlanConstraints;
@@ -6,10 +8,11 @@ use crate::policy::copyspace::CopySpace;
 use crate::scheduler::gc_work::*;
 use crate::scheduler::WorkerLocal;
 use crate::util::alloc::{Allocator, BumpAllocator};
+use crate::util::metadata::store_metadata;
 use crate::util::object_forwarding;
 use crate::util::opaque_pointer::*;
 use crate::util::{Address, ObjectReference};
-use crate::vm::VMBinding;
+use crate::vm::{VMBinding, ObjectModel};
 use crate::MMTK;
 use std::ops::{Deref, DerefMut};
 
@@ -53,6 +56,13 @@ impl<VM: VMBinding> CopyContext for TSCopyContext<VM> {
         _semantics: crate::AllocationSemantics,
     ) {
         object_forwarding::clear_forwarding_bits::<VM>(obj);
+        store_metadata::<VM>(
+            VM::VMObjectModel::GLOBAL_LOG_BIT_SPEC,
+            obj,
+            0b1,
+            None,
+            Some(Ordering::SeqCst),
+        );
     }
 }
 

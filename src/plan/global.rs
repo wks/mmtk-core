@@ -130,7 +130,7 @@ pub fn create_mutator<VM: VMBinding>(
             crate::plan::pageprotect::mutator::create_pp_mutator(tls, &*mmtk.plan)
         }
         PlanSelector::TripleSpace => {
-            crate::plan::triplespace::mutator::create_ts_mutator(tls, &*mmtk.plan)
+            crate::plan::triplespace::mutator::create_ts_mutator(tls, &*mmtk.plan, mmtk)
         }
     })
 }

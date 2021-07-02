@@ -72,6 +72,7 @@ impl<E: ProcessEdgesWork> ObjectRememberingBarrier<E> {
 impl<E: ProcessEdgesWork> Barrier for ObjectRememberingBarrier<E> {
     #[cold]
     fn flush(&mut self) {
+        trace!("[flush] fush called.");
         let mut modbuf = vec![];
         std::mem::swap(&mut modbuf, &mut self.modbuf);
         debug_assert!(
@@ -90,6 +91,7 @@ impl<E: ProcessEdgesWork> Barrier for ObjectRememberingBarrier<E> {
         match target {
             WriteTarget::Object(obj) => {
                 self.enqueue_node::<E::VM>(obj);
+                trace!("[post_write_barrier] Enqueueing object: {}", obj);
             }
             _ => unreachable!(),
         }
