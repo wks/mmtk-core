@@ -146,10 +146,6 @@ impl<VM: VMBinding> Plan for TripleSpace<VM> {
             self.youngspace.reserved_pages() +
             self.common.get_pages_used()
     }
-
-    fn handle_user_collection_request(&self, _tls: VMMutatorThread, _force: bool) {
-        println!("Warning: User attempted a collection request, but it is not supported in TripleSpace. The request is ignored.");
-    }
 }
 
 impl<VM: VMBinding> TripleSpace<VM> {
