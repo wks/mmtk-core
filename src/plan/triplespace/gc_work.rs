@@ -12,7 +12,7 @@ use crate::util::metadata::store_metadata;
 use crate::util::object_forwarding;
 use crate::util::opaque_pointer::*;
 use crate::util::{Address, ObjectReference};
-use crate::vm::{VMBinding, ObjectModel};
+use crate::vm::{VMBinding, ObjectModel, ActivePlan};
 use crate::MMTK;
 use std::ops::{Deref, DerefMut};
 
@@ -45,6 +45,7 @@ impl<VM: VMBinding> CopyContext for TSCopyContext<VM> {
         offset: isize,
         _semantics: crate::AllocationSemantics,
     ) -> Address {
+        debug_assert!(VM::VMActivePlan::global().base().gc_in_progress_proper());
         self.bp.alloc(bytes, align, offset)
     }
     #[inline(always)]
@@ -83,14 +84,14 @@ impl<VM: VMBinding> WorkerLocal for TSCopyContext<VM> {
     }
 }
 
-pub struct TSProcessEdges<VM: VMBinding> {
+pub struct TSProcessEdges<VM: VMBinding, const IS_FULL_HEAP: bool> {
     // Use a static ref to the specific plan to avoid overhead from dynamic dispatch or
     // downcast for each traced object.
     plan: &'static TripleSpace<VM>,
-    base: ProcessEdgesBase<TSProcessEdges<VM>>,
+    base: ProcessEdgesBase<TSProcessEdges<VM, IS_FULL_HEAP>>,
 }
 
-impl<VM: VMBinding> TSProcessEdges<VM> {
+impl<VM: VMBinding, const IS_FULL_HEAP: bool> TSProcessEdges<VM, IS_FULL_HEAP> {
     fn ts(&self) -> &'static TripleSpace<VM> {
         self.plan
     }
@@ -114,7 +115,7 @@ impl<VM: VMBinding> TSProcessEdges<VM> {
     }
 }
 
-impl<VM: VMBinding> ProcessEdgesWork for TSProcessEdges<VM> {
+impl<VM: VMBinding, const IS_FULL_HEAP: bool> ProcessEdgesWork for TSProcessEdges<VM, IS_FULL_HEAP> {
     type VM = VM;
     fn new(edges: Vec<Address>, _roots: bool, mmtk: &'static MMTK<VM>) -> Self {
         let base = ProcessEdgesBase::new(edges, mmtk);
@@ -127,22 +128,51 @@ impl<VM: VMBinding> ProcessEdgesWork for TSProcessEdges<VM> {
         if object.is_null() {
             return object;
         }
-        self.try_trace_object_in(self.ts().tospace(), object)
-            .or_else(|| {
-                self.try_trace_object_in(self.ts().fromspace(), object)
-            })
-            .or_else(|| {
-                self.try_trace_object_in(&self.ts().youngspace, object)
-            })
-            .unwrap_or_else(|| {
-                self.ts()
-                    .common
-                    .trace_object::<Self, TSCopyContext<VM>>(self, object)
-            })
+        
+        if let Some(res) = self.try_trace_object_in(&self.ts().youngspace, object) {
+            return res;
+        }
+
+        if !IS_FULL_HEAP {
+            // nursery
+            // End here. Do not trace objects in other spaces.
+
+            // Assert that no objects are in the from space.
+            debug_assert!(!self.ts().fromspace().in_space(object));
+            debug_assert!(self.ts().tospace().in_space(object));
+    
+            return object;
+        } 
+
+        // full-heap
+        if let Some(res) = self.try_trace_object_in(self.ts().tospace(), object) {
+            return res;
+        }
+
+        if let Some(res) = self.try_trace_object_in(self.ts().fromspace(), object) {
+            return res;
+        }
+        
+        self.ts().common.trace_object::<Self, TSCopyContext<VM>>(self, object)
+    }
+
+    #[inline]
+    fn process_edge(&mut self, slot: Address) {
+        if !IS_FULL_HEAP {
+            debug_assert!(!self.ts().fromspace().address_in_space(slot));
+        }
+        let object = unsafe { slot.load::<ObjectReference>() };
+        let new_object = self.trace_object(object);
+        if !IS_FULL_HEAP {
+            debug_assert!(!self.ts().youngspace.in_space(new_object));
+            debug_assert!(object.is_null() || self.ts().tospace().in_space(new_object));
+            debug_assert!(object.is_null() || !new_object.is_null());
+        }
+        unsafe { slot.store(new_object) };
     }
 }
 
-impl<VM: VMBinding> Deref for TSProcessEdges<VM> {
+impl<VM: VMBinding, const IS_FULL_HEAP: bool> Deref for TSProcessEdges<VM, IS_FULL_HEAP> {
     type Target = ProcessEdgesBase<Self>;
     #[inline]
     fn deref(&self) -> &Self::Target {
@@ -150,7 +180,7 @@ impl<VM: VMBinding> Deref for TSProcessEdges<VM> {
     }
 }
 
-impl<VM: VMBinding> DerefMut for TSProcessEdges<VM> {
+impl<VM: VMBinding, const IS_FULL_HEAP: bool> DerefMut for TSProcessEdges<VM, IS_FULL_HEAP> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.base
