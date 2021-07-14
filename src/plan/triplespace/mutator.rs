@@ -58,7 +58,7 @@ pub fn create_ts_mutator<VM: VMBinding>(
         allocators: Allocators::<VM>::new(mutator_tls, plan, &config.space_mapping),
         barrier: Box::new(ObjectRememberingBarrier::<TSProcessEdges<VM, false>>::new(
             mmtk,
-            VM::VMObjectModel::GLOBAL_LOG_BIT_SPEC,
+            *VM::VMObjectModel::GLOBAL_LOG_BIT_SPEC,
         )),
         mutator_tls,
         config,

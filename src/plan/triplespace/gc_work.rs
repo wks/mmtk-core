@@ -58,7 +58,7 @@ impl<VM: VMBinding> CopyContext for TSCopyContext<VM> {
     ) {
         object_forwarding::clear_forwarding_bits::<VM>(obj);
         store_metadata::<VM>(
-            VM::VMObjectModel::GLOBAL_LOG_BIT_SPEC,
+            &VM::VMObjectModel::GLOBAL_LOG_BIT_SPEC,
             obj,
             0b1,
             None,

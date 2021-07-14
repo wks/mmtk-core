@@ -19,7 +19,7 @@ use crate::util::heap::HeapMeta;
 use crate::util::heap::VMRequest;
 use crate::util::{conversions, metadata, opaque_pointer::*};
 use crate::util::options::UnsafeOptionsWrapper;
-use crate::util::metadata::side_metadata::{SideMetadataContext, SideMetadataSanity};
+use crate::util::metadata::side_metadata::SideMetadataSanity;
 use crate::vm::*;
 use enum_map::EnumMap;
 use std::sync::Arc;
@@ -221,7 +221,7 @@ impl<VM: VMBinding> TripleSpace<VM> {
         let mut heap = HeapMeta::new(HEAP_START, HEAP_END);
 
         let global_metadata_specs = metadata::extract_side_metadata(&[
-            VM::VMObjectModel::GLOBAL_LOG_BIT_SPEC,
+            *VM::VMObjectModel::GLOBAL_LOG_BIT_SPEC,
         ]);
 
         let res = TripleSpace {
