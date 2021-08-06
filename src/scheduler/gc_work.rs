@@ -191,7 +191,6 @@ impl<ScanEdges: ProcessEdgesWork> StopMutators<ScanEdges> {
 
 impl<E: ProcessEdgesWork> GCWork<E::VM> for StopMutators<E> {
     fn do_work(&mut self, worker: &mut GCWorker<E::VM>, mmtk: &'static MMTK<E::VM>) {
-        if worker.is_coordinator() {
             trace!("stop_all_mutators start");
             debug_assert_eq!(mmtk.plan.base().scanned_stacks.load(Ordering::SeqCst), 0);
             <E::VM as VMBinding>::VMCollection::stop_all_mutators::<E>(worker.tls);
@@ -222,10 +221,6 @@ impl<E: ProcessEdgesWork> GCWork<E::VM> for StopMutators<E> {
             }
             mmtk.scheduler.work_buckets[WorkBucketStage::Prepare]
                 .add(ScanVMSpecificRoots::<E>::new());
-        } else {
-            mmtk.scheduler
-                .add_coordinator_work(StopMutators::<E>::new(), worker);
-        }
     }
 }
 
