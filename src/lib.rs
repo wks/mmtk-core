@@ -66,8 +66,9 @@ mod mmtk;
 pub(crate) use mmtk::MMAPPER;
 pub use mmtk::MMTK;
 pub(crate) use mmtk::VM_MAP;
+pub use mmtk::SFT_MAP;
 
-mod policy;
+pub mod policy;
 
 pub mod memory_manager;
 pub mod plan;

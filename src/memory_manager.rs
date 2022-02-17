@@ -321,6 +321,11 @@ pub fn is_mapped_object(object: ObjectReference) -> bool {
     object.is_mapped()
 }
 
+#[cfg(feature = "global_alloc_bit")]
+pub fn is_alloced(object: ObjectReference) -> bool {
+    crate::util::alloc_bit::is_alloced(object)
+}
+
 /// Is the address in the mapped memory? The runtime can use this function to check
 /// if an address is mapped by MMTk. Note that this is different than is_mapped_object().
 /// For malloc spaces, MMTk does not map those addresses (malloc does the mmap), so

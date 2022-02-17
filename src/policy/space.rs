@@ -75,6 +75,7 @@ pub trait SFT {
     /// in the space contain actual MMTk objects. So they need a further check.
     #[inline(always)]
     fn is_mmtk_object(&self, _object: ObjectReference) -> bool {
+        println!("SFT.is_mmtk_object");
         true
     }
     /// Initialize object metadata (in the header, or in the side metadata).
@@ -261,6 +262,7 @@ impl<'a> SFTMap<'a> {
     }
 
     pub fn is_in_space(&self, object: ObjectReference) -> bool {
+        println!("SFTMap.is_in_space");
         if object.to_address().chunk_index() >= self.sft.len() {
             return false;
         }
