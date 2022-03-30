@@ -1,14 +1,14 @@
 use crate::plan::Mutator;
 use crate::scheduler::ProcessEdgesWork;
+use crate::util::ObjectReference;
 use crate::util::VMWorkerThread;
-use crate::util::{Address, ObjectReference};
+use crate::vm::edge_shape::Edge;
 use crate::vm::VMBinding;
 
 // Callback trait of scanning functions that report edges.
-pub trait EdgeVisitor {
+pub trait EdgeVisitor<ES: Edge> {
     /// Call this function for each edge.
-    fn visit_edge(&mut self, edge: Address);
-    // TODO: Add visit_soft_edge, visit_weak_edge, ... here.
+    fn visit_edge(&mut self, edge: ES);
 }
 
 /// VM-specific methods for scanning roots/objects.
@@ -28,7 +28,7 @@ pub trait Scanning<VM: VMBinding> {
     /// * `tls`: The VM-specific thread-local storage for the current worker.
     /// * `object`: The object to be scanned.
     /// * `edge_visitor`: Called back for each edge.
-    fn scan_object<EV: EdgeVisitor>(
+    fn scan_object<EV: EdgeVisitor<VM::VMEdge>>(
         tls: VMWorkerThread,
         object: ObjectReference,
         edge_visitor: &mut EV,
@@ -49,7 +49,7 @@ pub trait Scanning<VM: VMBinding> {
     /// * `tls`: The VM-specific thread-local storage for the current worker.
     /// * `objects`: The slice of object references to be scanned.
     /// * `edge_visitor`: Called back for each edge in each object in `objects`.
-    fn scan_objects<EV: EdgeVisitor>(
+    fn scan_objects<EV: EdgeVisitor<VM::VMEdge>>(
         tls: VMWorkerThread,
         objects: &[ObjectReference],
         edge_visitor: &mut EV,

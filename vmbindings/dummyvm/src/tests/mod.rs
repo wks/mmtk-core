@@ -16,3 +16,4 @@ mod malloc;
 mod conservatism;
 mod is_in_mmtk_spaces;
 mod fixtures;
+mod edges_test;

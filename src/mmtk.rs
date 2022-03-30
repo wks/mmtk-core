@@ -2,6 +2,7 @@
 use crate::plan::Plan;
 use crate::policy::space::SFTMap;
 use crate::scheduler::GCWorkScheduler;
+
 use crate::util::finalizable_processor::FinalizableProcessor;
 use crate::util::heap::layout::heap_layout::Mmapper;
 use crate::util::heap::layout::heap_layout::VMMap;
@@ -47,7 +48,7 @@ pub struct MMTK<VM: VMBinding> {
     pub(crate) options: Arc<UnsafeOptionsWrapper>,
     pub(crate) scheduler: Arc<GCWorkScheduler<VM>>,
     #[cfg(feature = "sanity")]
-    pub(crate) sanity_checker: Mutex<SanityChecker>,
+    pub(crate) sanity_checker: Mutex<SanityChecker<VM::VMEdge>>,
     inside_harness: AtomicBool,
 }
 

@@ -1,7 +1,8 @@
 use crate::plan::generational::global::Gen;
 use crate::policy::space::Space;
 use crate::scheduler::gc_work::*;
-use crate::util::{Address, ObjectReference};
+use crate::util::ObjectReference;
+use crate::vm::edge_shape::Edge;
 use crate::vm::*;
 use crate::MMTK;
 use std::ops::{Deref, DerefMut};
@@ -17,7 +18,7 @@ pub struct GenNurseryProcessEdges<VM: VMBinding> {
 impl<VM: VMBinding> ProcessEdgesWork for GenNurseryProcessEdges<VM> {
     type VM = VM;
 
-    fn new(edges: Vec<Address>, roots: bool, mmtk: &'static MMTK<VM>) -> Self {
+    fn new(edges: Vec<EdgeOf<Self>>, roots: bool, mmtk: &'static MMTK<VM>) -> Self {
         let base = ProcessEdgesBase::new(edges, roots, mmtk);
         let gen = base.plan().generational();
         Self { gen, base }
@@ -30,11 +31,11 @@ impl<VM: VMBinding> ProcessEdgesWork for GenNurseryProcessEdges<VM> {
         self.gen.trace_object_nursery(self, object, self.worker())
     }
     #[inline]
-    fn process_edge(&mut self, slot: Address) {
-        let object = unsafe { slot.load::<ObjectReference>() };
+    fn process_edge(&mut self, slot: EdgeOf<Self>) {
+        let object = slot.load();
         let new_object = self.trace_object(object);
         debug_assert!(!self.gen.nursery.in_space(new_object));
-        unsafe { slot.store(new_object) };
+        slot.store(new_object);
     }
 }
 

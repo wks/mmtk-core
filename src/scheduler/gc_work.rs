@@ -4,6 +4,7 @@ use crate::plan::GcStatus;
 use crate::plan::ObjectsClosure;
 use crate::util::metadata::*;
 use crate::util::*;
+use crate::vm::edge_shape::Edge;
 use crate::vm::*;
 use crate::*;
 use std::marker::PhantomData;
@@ -323,7 +324,7 @@ impl<E: ProcessEdgesWork> GCWork<E::VM> for ScanVMSpecificRoots<E> {
 }
 
 pub struct ProcessEdgesBase<VM: VMBinding> {
-    pub edges: Vec<Address>,
+    pub edges: Vec<VM::VMEdge>,
     pub nodes: Vec<ObjectReference>,
     mmtk: &'static MMTK<VM>,
     // Use raw pointer for fast pointer dereferencing, instead of using `Option<&'static mut GCWorker<E::VM>>`.
@@ -337,7 +338,7 @@ unsafe impl<VM: VMBinding> Send for ProcessEdgesBase<VM> {}
 impl<VM: VMBinding> ProcessEdgesBase<VM> {
     // Requires an MMTk reference. Each plan-specific type that uses ProcessEdgesBase can get a static plan reference
     // at creation. This avoids overhead for dynamic dispatch or downcasting plan for each object traced.
-    pub fn new(edges: Vec<Address>, roots: bool, mmtk: &'static MMTK<VM>) -> Self {
+    pub fn new(edges: Vec<VM::VMEdge>, roots: bool, mmtk: &'static MMTK<VM>) -> Self {
         #[cfg(feature = "extreme_assertions")]
         if crate::util::edge_logger::should_check_duplicate_edges(&*mmtk.plan) {
             for edge in &edges {
@@ -381,6 +382,9 @@ impl<VM: VMBinding> ProcessEdgesBase<VM> {
     }
 }
 
+/// A short-hand for `<E::VM as VMBinding>::VMEdge`.
+pub type EdgeOf<E> = <<E as ProcessEdgesWork>::VM as VMBinding>::VMEdge;
+
 /// Scan & update a list of object slots
 //
 // Note: be very careful when using this trait. process_node() will push objects
@@ -397,7 +401,7 @@ pub trait ProcessEdgesWork:
     const CAPACITY: usize = 4096;
     const OVERWRITE_REFERENCE: bool = true;
     const SCAN_OBJECTS_IMMEDIATELY: bool = true;
-    fn new(edges: Vec<Address>, roots: bool, mmtk: &'static MMTK<Self::VM>) -> Self;
+    fn new(edges: Vec<EdgeOf<Self>>, roots: bool, mmtk: &'static MMTK<Self::VM>) -> Self;
     fn trace_object(&mut self, object: ObjectReference) -> ObjectReference;
 
     #[cfg(feature = "sanity")]
@@ -458,11 +462,11 @@ pub trait ProcessEdgesWork:
     }
 
     #[inline]
-    fn process_edge(&mut self, slot: Address) {
-        let object = unsafe { slot.load::<ObjectReference>() };
+    fn process_edge(&mut self, slot: EdgeOf<Self>) {
+        let object = slot.load();
         let new_object = self.trace_object(object);
         if Self::OVERWRITE_REFERENCE {
-            unsafe { slot.store(new_object) };
+            slot.store(new_object);
         }
     }
 
@@ -504,7 +508,8 @@ pub struct SFTProcessEdges<VM: VMBinding> {
 
 impl<VM: VMBinding> ProcessEdgesWork for SFTProcessEdges<VM> {
     type VM = VM;
-    fn new(edges: Vec<Address>, roots: bool, mmtk: &'static MMTK<VM>) -> Self {
+
+    fn new(edges: Vec<EdgeOf<Self>>, roots: bool, mmtk: &'static MMTK<VM>) -> Self {
         let base = ProcessEdgesBase::new(edges, roots, mmtk);
         Self { base }
     }
@@ -636,7 +641,7 @@ impl<VM: VMBinding, P: PlanTraceObject<VM> + Plan<VM = VM>, const KIND: TraceKin
 {
     type VM = VM;
 
-    fn new(edges: Vec<Address>, roots: bool, mmtk: &'static MMTK<VM>) -> Self {
+    fn new(edges: Vec<EdgeOf<Self>>, roots: bool, mmtk: &'static MMTK<VM>) -> Self {
         let base = ProcessEdgesBase::new(edges, roots, mmtk);
         let plan = base.plan().downcast_ref::<P>().unwrap();
         Self { plan, base }
@@ -657,11 +662,11 @@ impl<VM: VMBinding, P: PlanTraceObject<VM> + Plan<VM = VM>, const KIND: TraceKin
     }
 
     #[inline]
-    fn process_edge(&mut self, slot: Address) {
-        let object = unsafe { slot.load::<ObjectReference>() };
+    fn process_edge(&mut self, slot: EdgeOf<Self>) {
+        let object = slot.load();
         let new_object = self.trace_object(object);
         if P::may_move_objects::<KIND>() {
-            unsafe { slot.store(new_object) };
+            slot.store(new_object);
         }
     }
 }
