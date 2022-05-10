@@ -345,6 +345,7 @@ impl<VM: VMBinding> ProcessEdgesBase<VM> {
                 crate::util::edge_logger::log_edge(*edge);
             }
         }
+        info!("New ProcessEdgesBase. edges.len(): {}", edges.len());
         Self {
             edges,
             nodes: vec![],
@@ -546,6 +547,7 @@ pub struct ScanObjects<Edges: ProcessEdgesWork> {
 
 impl<Edges: ProcessEdgesWork> ScanObjects<Edges> {
     pub fn new(buffer: Vec<ObjectReference>, concurrent: bool) -> Self {
+        info!("New ScanObjects. buffer.len(): {}", buffer.len());
         Self {
             buffer,
             concurrent,

@@ -616,6 +616,7 @@ impl<Edges: ProcessEdgesWork> ScanObjectsAndMarkLines<Edges> {
         concurrent: bool,
         immix_space: &'static ImmixSpace<Edges::VM>,
     ) -> Self {
+        info!("New ScanObjectsAndMarkLines. buffer.len(): {}", buffer.len());
         Self {
             buffer,
             concurrent,
