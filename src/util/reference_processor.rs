@@ -4,6 +4,8 @@ use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 use std::vec::Vec;
 
+use crate::policy::space::TraceObjectResult;
+use crate::policy::space::VisitObjectKind;
 use crate::scheduler::ProcessEdgesWork;
 use crate::util::ObjectReference;
 use crate::util::VMWorkerThread;
@@ -219,7 +221,15 @@ impl ReferenceProcessor {
         e: &mut E,
         referent: ObjectReference,
     ) -> ObjectReference {
-        e.trace_object(referent)
+        // TODO: Should ensure it doesn't enqueue at this moment.
+        let TraceObjectResult { visit, forward } = e.trace_object(referent);
+        debug_assert_eq!(
+            visit,
+            VisitObjectKind::Revisit,
+            "Referent has not been visited before: {}",
+            referent
+        );
+        forward.unwrap_or(referent)
     }
 
     #[inline(always)]
@@ -227,7 +237,14 @@ impl ReferenceProcessor {
         e: &mut E,
         object: ObjectReference,
     ) -> ObjectReference {
-        e.trace_object(object)
+        let TraceObjectResult { visit, forward } = e.trace_object(object);
+        debug_assert_eq!(
+            visit,
+            VisitObjectKind::Revisit,
+            "Reference has not been visited before: {}",
+            object
+        );
+        forward.unwrap_or(object)
     }
 
     #[inline(always)]
@@ -235,7 +252,13 @@ impl ReferenceProcessor {
         e: &mut E,
         referent: ObjectReference,
     ) -> ObjectReference {
-        e.trace_object(referent)
+        let TraceObjectResult { visit, forward } = e.trace_object(referent);
+        debug_assert!(
+            matches!(visit, VisitObjectKind::FirstVisit { .. }),
+            "Not the first time to visit the referent: {}",
+            referent
+        );
+        forward.unwrap_or(referent)
     }
 
     /// Inform the binding to enqueue the weak references whose referents were cleared in this GC.

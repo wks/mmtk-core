@@ -4,24 +4,8 @@ use std::mem;
 
 use crate::scheduler::gc_work::ProcessEdgesWork;
 use crate::scheduler::{GCWorker, WorkBucketStage};
-use crate::util::{Address, ObjectReference};
+use crate::util::Address;
 use crate::vm::EdgeVisitor;
-
-/// This trait is the fundamental mechanism for performing a
-/// transitive closure over an object graph.
-pub trait TransitiveClosure {
-    // The signature of this function changes during the port
-    // because the argument `ObjectReference source` is never used in the original version
-    // See issue #5
-    fn process_node(&mut self, object: ObjectReference);
-}
-
-impl<T: ProcessEdgesWork> TransitiveClosure for T {
-    #[inline]
-    fn process_node(&mut self, object: ObjectReference) {
-        ProcessEdgesWork::process_node(self, object);
-    }
-}
 
 /// A transitive closure visitor to collect all the edges of an object.
 pub struct ObjectsClosure<'a, E: ProcessEdgesWork> {

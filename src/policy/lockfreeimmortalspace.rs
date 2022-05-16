@@ -60,10 +60,9 @@ impl<VM: VMBinding> SFT for LockFreeImmortalSpace<VM> {
     }
     fn sft_trace_object(
         &self,
-        _trace: SFTProcessEdgesMutRef,
         _object: ObjectReference,
         _worker: GCWorkerMutRef,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         unreachable!()
     }
 }
@@ -149,19 +148,17 @@ impl<VM: VMBinding> Space<VM> for LockFreeImmortalSpace<VM> {
     }
 }
 
-use crate::plan::TransitiveClosure;
 use crate::scheduler::GCWorker;
 use crate::util::copy::CopySemantics;
 
 impl<VM: VMBinding> crate::policy::gc_work::PolicyTraceObject<VM> for LockFreeImmortalSpace<VM> {
     #[inline(always)]
-    fn trace_object<T: TransitiveClosure, const KIND: crate::policy::gc_work::TraceKind>(
+    fn trace_object<const KIND: crate::policy::gc_work::TraceKind>(
         &self,
-        _trace: &mut T,
         _object: ObjectReference,
         _copy: Option<CopySemantics>,
         _worker: &mut GCWorker<VM>,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         unreachable!()
     }
     #[inline(always)]

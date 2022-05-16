@@ -22,7 +22,6 @@ use crate::util::object_forwarding as ForwardingWord;
 use crate::util::{Address, ObjectReference};
 use crate::vm::*;
 use crate::{
-    plan::TransitiveClosure,
     scheduler::{GCWork, GCWorkScheduler, GCWorker, WorkBucketStage},
     util::{
         heap::FreeListPageResource,
@@ -83,10 +82,9 @@ impl<VM: VMBinding> SFT for ImmixSpace<VM> {
     #[inline(always)]
     fn sft_trace_object(
         &self,
-        _trace: SFTProcessEdgesMutRef,
         _object: ObjectReference,
         _worker: GCWorkerMutRef,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         panic!("We do not use SFT to trace objects for Immix. sft_trace_object() cannot be used.")
     }
 }
@@ -118,17 +116,16 @@ impl<VM: VMBinding> Space<VM> for ImmixSpace<VM> {
 
 impl<VM: VMBinding> crate::policy::gc_work::PolicyTraceObject<VM> for ImmixSpace<VM> {
     #[inline(always)]
-    fn trace_object<T: TransitiveClosure, const KIND: TraceKind>(
+    fn trace_object<const KIND: TraceKind>(
         &self,
-        trace: &mut T,
         object: ObjectReference,
         copy: Option<CopySemantics>,
         worker: &mut GCWorker<VM>,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         if KIND == TRACE_KIND_DEFRAG {
-            self.trace_object(trace, object, copy.unwrap(), worker)
+            self.trace_object(object, copy.unwrap(), worker)
         } else if KIND == TRACE_KIND_FAST {
-            self.fast_trace_object(trace, object)
+            self.fast_trace_object(object)
         } else {
             unreachable!()
         }
@@ -365,23 +362,18 @@ impl<VM: VMBinding> ImmixSpace<VM> {
 
     /// Trace and mark objects without evacuation.
     #[inline(always)]
-    pub fn fast_trace_object(
-        &self,
-        trace: &mut impl TransitiveClosure,
-        object: ObjectReference,
-    ) -> ObjectReference {
-        self.trace_object_without_moving(trace, object)
+    pub fn fast_trace_object(&self, object: ObjectReference) -> TraceObjectResult {
+        self.trace_object_without_moving(object)
     }
 
     /// Trace and mark objects. If the current object is in defrag block, then do evacuation as well.
     #[inline(always)]
     pub fn trace_object(
         &self,
-        trace: &mut impl TransitiveClosure,
         object: ObjectReference,
         semantics: CopySemantics,
         worker: &mut GCWorker<VM>,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         #[cfg(feature = "global_alloc_bit")]
         debug_assert!(
             crate::util::alloc_bit::is_alloced(object),
@@ -390,9 +382,9 @@ impl<VM: VMBinding> ImmixSpace<VM> {
         );
         if Block::containing::<VM>(object).is_defrag_source() {
             debug_assert!(self.in_defrag());
-            self.trace_object_with_opportunistic_copy(trace, object, semantics, worker)
+            self.trace_object_with_opportunistic_copy(object, semantics, worker)
         } else {
-            self.trace_object_without_moving(trace, object)
+            self.trace_object_without_moving(object)
         }
     }
 
@@ -400,9 +392,8 @@ impl<VM: VMBinding> ImmixSpace<VM> {
     #[inline(always)]
     pub fn trace_object_without_moving(
         &self,
-        trace: &mut impl TransitiveClosure,
         object: ObjectReference,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         if self.attempt_mark(object, self.mark_state) {
             // Mark block and lines
             if !super::BLOCK_ONLY {
@@ -412,10 +403,10 @@ impl<VM: VMBinding> ImmixSpace<VM> {
             } else {
                 Block::containing::<VM>(object).set_state(BlockState::Marked);
             }
-            // Visit node
-            trace.process_node(object);
+            TraceObjectResult::first_visit(object)
+        } else {
+            TraceObjectResult::revisit()
         }
-        object
     }
 
     /// Trace object and do evacuation if required.
@@ -423,11 +414,10 @@ impl<VM: VMBinding> ImmixSpace<VM> {
     #[inline(always)]
     pub fn trace_object_with_opportunistic_copy(
         &self,
-        trace: &mut impl TransitiveClosure,
         object: ObjectReference,
         semantics: CopySemantics,
         worker: &mut GCWorker<VM>,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         let copy_context = worker.get_copy_context_mut();
         debug_assert!(!super::BLOCK_ONLY);
         let forwarding_status = ForwardingWord::attempt_to_forward::<VM>(object);
@@ -456,7 +446,7 @@ impl<VM: VMBinding> ImmixSpace<VM> {
                     );
                 }
             }
-            new_object
+            TraceObjectResult::revisit().into_forward(new_object)
         } else if self.is_marked(object, self.mark_state) {
             // We won the forwarding race but the object is already marked so we clear the
             // forwarding status and return the unmoved object
@@ -466,7 +456,7 @@ impl<VM: VMBinding> ImmixSpace<VM> {
                 object,
             );
             ForwardingWord::clear_forwarding_bits::<VM>(object);
-            object
+            TraceObjectResult::revisit()
         } else {
             // We won the forwarding race; actually forward and copy the object if it is not pinned
             // and we have sufficient space in our copy allocator
@@ -484,9 +474,8 @@ impl<VM: VMBinding> ImmixSpace<VM> {
                 Block::containing::<VM>(new_object).get_state(),
                 BlockState::Marked
             );
-            trace.process_node(new_object);
             debug_assert!(new_object.is_live());
-            new_object
+            TraceObjectResult::first_visit(new_object).into_forward(new_object)
         }
     }
 

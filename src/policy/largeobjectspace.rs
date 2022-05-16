@@ -1,7 +1,6 @@
 use atomic::Ordering;
 
 use crate::plan::PlanConstraints;
-use crate::plan::TransitiveClosure;
 use crate::policy::space::SpaceOptions;
 use crate::policy::space::*;
 use crate::policy::space::{CommonSpace, Space, SFT};
@@ -83,12 +82,10 @@ impl<VM: VMBinding> SFT for LargeObjectSpace<VM> {
     #[inline(always)]
     fn sft_trace_object(
         &self,
-        trace: SFTProcessEdgesMutRef,
         object: ObjectReference,
         _worker: GCWorkerMutRef,
-    ) -> ObjectReference {
-        let trace = trace.into_mut::<VM>();
-        self.trace_object(trace, object)
+    ) -> TraceObjectResult {
+        self.trace_object(object)
     }
 }
 
@@ -120,14 +117,13 @@ use crate::util::copy::CopySemantics;
 
 impl<VM: VMBinding> crate::policy::gc_work::PolicyTraceObject<VM> for LargeObjectSpace<VM> {
     #[inline(always)]
-    fn trace_object<T: TransitiveClosure, const KIND: crate::policy::gc_work::TraceKind>(
+    fn trace_object<const KIND: crate::policy::gc_work::TraceKind>(
         &self,
-        trace: &mut T,
         object: ObjectReference,
         _copy: Option<CopySemantics>,
         _worker: &mut GCWorker<VM>,
-    ) -> ObjectReference {
-        self.trace_object(trace, object)
+    ) -> TraceObjectResult {
+        self.trace_object(object)
     }
     #[inline(always)]
     fn may_move_objects<const KIND: crate::policy::gc_work::TraceKind>() -> bool {
@@ -201,11 +197,10 @@ impl<VM: VMBinding> LargeObjectSpace<VM> {
     // Allow nested-if for this function to make it clear that test_and_mark() is only executed
     // for the outer condition is met.
     #[allow(clippy::collapsible_if)]
-    pub fn trace_object<T: TransitiveClosure>(
+    pub fn trace_object(
         &self,
-        trace: &mut T,
         object: ObjectReference,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         #[cfg(feature = "global_alloc_bit")]
         debug_assert!(
             crate::util::alloc_bit::is_alloced(object),
@@ -224,10 +219,13 @@ impl<VM: VMBinding> LargeObjectSpace<VM> {
                     VM::VMObjectModel::GLOBAL_LOG_BIT_SPEC
                         .mark_as_unlogged::<VM>(object, Ordering::SeqCst);
                 }
-                trace.process_node(object);
+                TraceObjectResult::first_visit(object)
+            } else {
+                TraceObjectResult::revisit()
             }
+        } else {
+            TraceObjectResult::no_visit()
         }
-        object
     }
 
     fn sweep_large_pages(&mut self, sweep_nursery: bool) {

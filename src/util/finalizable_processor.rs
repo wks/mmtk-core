@@ -1,3 +1,4 @@
+use crate::policy::space::{TraceObjectResult, VisitObjectKind};
 use crate::scheduler::gc_work::ProcessEdgesWork;
 use crate::scheduler::{GCWork, GCWorker};
 use crate::util::{ObjectReference, VMWorkerThread};
@@ -37,14 +38,29 @@ impl FinalizableProcessor {
         e: &mut E,
         object: ObjectReference,
     ) -> ObjectReference {
-        e.trace_object(object)
+        let TraceObjectResult { visit, forward } = e.trace_object(object);
+        if false {
+            debug_assert_eq!(
+                visit,
+                VisitObjectKind::Revisit,
+                "Object has not been visited before: {}",
+                object
+            );
+        }
+        forward.unwrap_or(object)
     }
 
     fn return_for_finalize<E: ProcessEdgesWork>(
         e: &mut E,
         object: ObjectReference,
     ) -> ObjectReference {
-        e.trace_object(object)
+        let TraceObjectResult { visit, forward } = e.trace_object(object);
+        debug_assert!(
+            matches!(visit, VisitObjectKind::FirstVisit { .. }),
+            "Object have been visited before: {}",
+            object
+        );
+        forward.unwrap_or(object)
     }
 
     pub fn scan<E: ProcessEdgesWork>(&mut self, tls: VMWorkerThread, e: &mut E, nursery: bool) {

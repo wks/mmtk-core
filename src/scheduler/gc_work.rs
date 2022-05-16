@@ -2,6 +2,8 @@ use super::work_bucket::WorkBucketStage;
 use super::*;
 use crate::plan::GcStatus;
 use crate::plan::ObjectsClosure;
+use crate::policy::space::TraceObjectResult;
+use crate::policy::space::VisitObjectKind;
 use crate::util::metadata::*;
 use crate::util::*;
 use crate::vm::*;
@@ -400,7 +402,7 @@ pub trait ProcessEdgesWork:
     const OVERWRITE_REFERENCE: bool = true;
     const SCAN_OBJECTS_IMMEDIATELY: bool = true;
     fn new(edges: Vec<Address>, roots: bool, mmtk: &'static MMTK<Self::VM>) -> Self;
-    fn trace_object(&mut self, object: ObjectReference) -> ObjectReference;
+    fn trace_object(&mut self, object: ObjectReference) -> TraceObjectResult;
 
     #[cfg(feature = "sanity")]
     fn cache_roots_for_sanity_gc(&mut self) {
@@ -462,9 +464,14 @@ pub trait ProcessEdgesWork:
     #[inline]
     fn process_edge(&mut self, slot: Address) {
         let object = unsafe { slot.load::<ObjectReference>() };
-        let new_object = self.trace_object(object);
+        let TraceObjectResult { visit, forward } = self.trace_object(object);
         if Self::OVERWRITE_REFERENCE {
-            unsafe { slot.store(new_object) };
+            if let Some(new_object) = forward {
+                unsafe { slot.store(new_object) };
+            }
+        }
+        if let VisitObjectKind::FirstVisit { enqueue } = visit {
+            self.process_node(enqueue)
         }
     }
 
@@ -512,11 +519,11 @@ impl<VM: VMBinding> ProcessEdgesWork for SFTProcessEdges<VM> {
     }
 
     #[inline]
-    fn trace_object(&mut self, object: ObjectReference) -> ObjectReference {
+    fn trace_object(&mut self, object: ObjectReference) -> TraceObjectResult {
         use crate::policy::space::*;
 
         if object.is_null() {
-            return object;
+            return TraceObjectResult::no_visit();
         }
 
         // Make sure we have valid SFT entries for the object.
@@ -525,11 +532,10 @@ impl<VM: VMBinding> ProcessEdgesWork for SFTProcessEdges<VM> {
 
         // Erase <VM> type parameter
         let worker = GCWorkerMutRef::new(self.worker());
-        let trace = SFTProcessEdgesMutRef::new(self);
 
         // Invoke trace object on sft
         let sft = crate::mmtk::SFT_MAP.get(object.to_address());
-        sft.sft_trace_object(trace, object, worker)
+        sft.sft_trace_object(object, worker)
     }
 }
 
@@ -650,20 +656,31 @@ impl<VM: VMBinding, P: PlanTraceObject<VM> + Plan<VM = VM>, const KIND: TraceKin
     }
 
     #[inline(always)]
-    fn trace_object(&mut self, object: ObjectReference) -> ObjectReference {
+    fn trace_object(&mut self, object: ObjectReference) -> TraceObjectResult {
         if object.is_null() {
-            return object;
+            return TraceObjectResult::no_visit();
         }
-        self.plan
-            .trace_object::<Self, KIND>(self, object, self.worker())
+        self.plan.trace_object::<KIND>(object, self.worker())
     }
 
     #[inline]
     fn process_edge(&mut self, slot: Address) {
         let object = unsafe { slot.load::<ObjectReference>() };
-        let new_object = self.trace_object(object);
+        let TraceObjectResult { visit, forward } = self.trace_object(object);
         if P::may_move_objects::<KIND>() {
-            unsafe { slot.store(new_object) };
+            if let Some(new_object) = forward {
+                unsafe { slot.store(new_object) };
+            }
+        } else {
+            debug_assert!(
+                forward.is_none(),
+                "A non-moving plan moved object! {} -> {}",
+                object,
+                forward.unwrap()
+            );
+        }
+        if let VisitObjectKind::FirstVisit { enqueue } = visit {
+            self.process_node(enqueue)
         }
     }
 }

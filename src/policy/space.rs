@@ -110,10 +110,9 @@ pub trait SFT {
     /// Immix has defrag trace and fast trace.
     fn sft_trace_object(
         &self,
-        trace: SFTProcessEdgesMutRef,
         object: ObjectReference,
         worker: GCWorkerMutRef,
-    ) -> ObjectReference;
+    ) -> TraceObjectResult;
 }
 
 // Create erased VM refs for these types that will be used in `sft_trace_object()`.
@@ -176,10 +175,9 @@ impl SFT for EmptySpaceSFT {
 
     fn sft_trace_object(
         &self,
-        _trace: SFTProcessEdgesMutRef,
         _object: ObjectReference,
         _worker: GCWorkerMutRef,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         panic!(
             "Call trace_object() on {} (chunk {}), which maps to an empty space",
             _object,
@@ -373,6 +371,96 @@ impl<'a> SFTMap<'a> {
             object_start_sft.name(),
             object_sft.name()
         );
+    }
+}
+
+/// A data structure for how a trace_object invocation visited the object.
+/// This enum is part of TraceObjectResult.
+#[derive(PartialEq, Eq, Debug)]
+pub enum VisitObjectKind {
+    /// The trace_object never visited the object during a trace for some reasons, such as
+    ///
+    /// -   The object reference is `null`.
+    /// -   The space is a to-space.
+    /// -   The object is not in the nursery during nursery collection.
+    /// -   Other reasons relevant to the GC algorithm.
+    NoVisit,
+
+    /// This is the first time the GC visits an object in a trace.
+    ///
+    /// Tracing GC enqueues the object for scanning on first visit during tracing. The `enqueue`
+    /// field indicates which object to enqueue.
+    ///
+    /// If the GC algorithm copies object, it can usually enqueue either the object in the
+    /// from-space or the copied object in the to-space.  For some GC algorithms, such as
+    /// MarkCompact, it must enqueue from-space objects during the forwarding phase, because the
+    /// objects are not yet copied.
+    FirstVisit { enqueue: ObjectReference },
+
+    /// The object has been visited in a trace.
+    Revisit,
+}
+
+/// The result of XxxxSpace::trace_object.
+#[derive(Debug)]
+pub struct TraceObjectResult {
+    /// How the trace_object invocation visited the object.
+    pub visit: VisitObjectKind,
+    /// `Some(new_object)` if the edge that pointed to the object should be updated to
+    /// `new_object`.  Otherwise `None`.
+    ///
+    /// `Some(new_object)` can be used by evacuating GC to indicate the destination of
+    /// the copied object.  It can also be used by MarkCompact to indicate where the object
+    /// will be moved to during the forwarding phase in order to update references even
+    /// though objects are not actually moved yet.
+    pub forward: Option<ObjectReference>,
+}
+
+impl TraceObjectResult {
+    /// The constant for no_visit().
+    pub const NO_VISIT: Self = Self {
+        visit: VisitObjectKind::NoVisit,
+        forward: None,
+    };
+
+    /// Factory method for the NoVisit case.  No forwarded ref, either
+    #[inline(always)]
+    pub const fn no_visit() -> Self {
+        Self::NO_VISIT
+    }
+
+    /// Create a TraceObjectResult for the FirstVisit case with a given object reference to
+    /// enqueue, and no forwarded object.
+    #[inline(always)]
+    pub fn first_visit(enqueue: ObjectReference) -> Self {
+        Self {
+            visit: VisitObjectKind::FirstVisit { enqueue },
+            forward: None,
+        }
+    }
+
+    /// Create a TraceObjectResult for the Revisit case wihtout forwarded object.
+    #[inline(always)]
+    pub fn revisit() -> Self {
+        Self {
+            visit: VisitObjectKind::Revisit,
+            forward: None,
+        }
+    }
+
+    /// Convert a TraceObjectResult into another that has the same `visit` field but with a
+    /// forwarded object, i.e. `new_object`.  This method is designed to be chained after one of
+    /// the other factory methods:
+    ///
+    /// ```
+    /// return TraceObjectResult::first_visit(foo).into_forward(bar);
+    /// ```
+    #[inline(always)]
+    pub fn into_forward(self, new_object: ObjectReference) -> Self {
+        Self {
+            forward: Some(new_object),
+            ..self
+        }
     }
 }
 

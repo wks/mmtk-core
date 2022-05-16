@@ -1,5 +1,4 @@
 use super::metadata::*;
-use crate::plan::TransitiveClosure;
 use crate::policy::space::CommonSpace;
 use crate::policy::space::SFT;
 use crate::util::constants::BYTES_IN_PAGE;
@@ -97,12 +96,10 @@ impl<VM: VMBinding> SFT for MallocSpace<VM> {
     #[inline(always)]
     fn sft_trace_object(
         &self,
-        trace: SFTProcessEdgesMutRef,
         object: ObjectReference,
         _worker: GCWorkerMutRef,
-    ) -> ObjectReference {
-        let trace = trace.into_mut::<VM>();
-        self.trace_object(trace, object)
+    ) -> TraceObjectResult {
+        self.trace_object(object)
     }
 }
 
@@ -194,14 +191,13 @@ use crate::util::copy::CopySemantics;
 
 impl<VM: VMBinding> crate::policy::gc_work::PolicyTraceObject<VM> for MallocSpace<VM> {
     #[inline(always)]
-    fn trace_object<T: TransitiveClosure, const KIND: crate::policy::gc_work::TraceKind>(
+    fn trace_object<const KIND: crate::policy::gc_work::TraceKind>(
         &self,
-        trace: &mut T,
         object: ObjectReference,
         _copy: Option<CopySemantics>,
         _worker: &mut GCWorker<VM>,
-    ) -> ObjectReference {
-        self.trace_object(trace, object)
+    ) -> TraceObjectResult {
+        self.trace_object(object)
     }
 
     #[inline(always)]
@@ -301,13 +297,12 @@ impl<VM: VMBinding> MallocSpace<VM> {
     }
 
     #[inline]
-    pub fn trace_object<T: TransitiveClosure>(
+    pub fn trace_object(
         &self,
-        trace: &mut T,
         object: ObjectReference,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         if object.is_null() {
-            return object;
+            return TraceObjectResult::no_visit();
         }
 
         let address = object.to_address();
@@ -321,10 +316,10 @@ impl<VM: VMBinding> MallocSpace<VM> {
             let chunk_start = conversions::chunk_align_down(address);
             set_mark_bit::<VM>(object, Some(Ordering::SeqCst));
             set_chunk_mark(chunk_start);
-            trace.process_node(object);
+            TraceObjectResult::first_visit(object)
+        } else {
+            TraceObjectResult::revisit()
         }
-
-        object
     }
 
     fn map_metadata_and_update_bound(&self, addr: Address, size: usize) {

@@ -1,4 +1,3 @@
-use crate::plan::TransitiveClosure;
 use crate::policy::copy_context::PolicyCopyContext;
 use crate::policy::space::SpaceOptions;
 use crate::policy::space::*;
@@ -68,13 +67,11 @@ impl<VM: VMBinding> SFT for CopySpace<VM> {
     #[inline(always)]
     fn sft_trace_object(
         &self,
-        trace: SFTProcessEdgesMutRef,
         object: ObjectReference,
         worker: GCWorkerMutRef,
-    ) -> ObjectReference {
-        let trace = trace.into_mut::<VM>();
+    ) -> TraceObjectResult {
         let worker = worker.into_mut::<VM>();
-        self.trace_object(trace, object, self.common.copy, worker)
+        self.trace_object(object, self.common.copy, worker)
     }
 }
 
@@ -110,14 +107,13 @@ impl<VM: VMBinding> Space<VM> for CopySpace<VM> {
 
 impl<VM: VMBinding> crate::policy::gc_work::PolicyTraceObject<VM> for CopySpace<VM> {
     #[inline(always)]
-    fn trace_object<T: TransitiveClosure, const KIND: crate::policy::gc_work::TraceKind>(
+    fn trace_object<const KIND: crate::policy::gc_work::TraceKind>(
         &self,
-        trace: &mut T,
         object: ObjectReference,
         copy: Option<CopySemantics>,
         worker: &mut GCWorker<VM>,
-    ) -> ObjectReference {
-        self.trace_object(trace, object, copy, worker)
+    ) -> TraceObjectResult {
+        self.trace_object(object, copy, worker)
     }
 
     #[inline(always)]
@@ -219,19 +215,18 @@ impl<VM: VMBinding> CopySpace<VM> {
     }
 
     #[inline]
-    pub fn trace_object<T: TransitiveClosure>(
+    pub fn trace_object(
         &self,
-        trace: &mut T,
         object: ObjectReference,
         semantics: Option<CopySemantics>,
         worker: &mut GCWorker<VM>,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         trace!("copyspace.trace_object(, {:?}, {:?})", object, semantics,);
 
         // If this is not from space, we do not need to trace it (the object has been copied to the tosapce)
         if !self.is_from_space() {
             // The copy semantics for tospace should be none.
-            return object;
+            return TraceObjectResult::no_visit();
         }
 
         // This object is in from space, we will copy. Make sure we have a valid copy semantic.
@@ -253,7 +248,7 @@ impl<VM: VMBinding> CopySpace<VM> {
             let new_object =
                 object_forwarding::spin_and_get_forwarded_object::<VM>(object, forwarding_status);
             trace!("Returning");
-            new_object
+            TraceObjectResult::revisit().into_forward(new_object)
         } else {
             trace!("... no it isn't. Copying");
             let new_object = object_forwarding::forward_object::<VM>(
@@ -261,10 +256,8 @@ impl<VM: VMBinding> CopySpace<VM> {
                 semantics.unwrap(),
                 worker.get_copy_context_mut(),
             );
-            trace!("Forwarding pointer");
-            trace.process_node(new_object);
             trace!("Copied [{:?} -> {:?}]", object, new_object);
-            new_object
+            TraceObjectResult::first_visit(new_object).into_forward(new_object)
         }
     }
 

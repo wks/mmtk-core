@@ -11,7 +11,7 @@ use crate::util::metadata::load_metadata;
 use crate::util::metadata::side_metadata::{SideMetadataContext, SideMetadataSpec};
 use crate::util::metadata::{compare_exchange_metadata, extract_side_metadata};
 use crate::util::{alloc_bit, Address, ObjectReference};
-use crate::{vm::*, TransitiveClosure};
+use crate::{vm::*};
 use atomic::Ordering;
 
 pub(crate) const TRACE_KIND_MARK: TraceKind = 0;
@@ -67,10 +67,9 @@ impl<VM: VMBinding> SFT for MarkCompactSpace<VM> {
     #[inline(always)]
     fn sft_trace_object(
         &self,
-        _trace: SFTProcessEdgesMutRef,
         _object: ObjectReference,
         _worker: GCWorkerMutRef,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         // We should not use trace_object for markcompact space.
         // Depending on which trace it is, we should manually call either trace_mark or trace_forward.
         panic!("sft_trace_object() cannot be used with mark compact space")
@@ -105,17 +104,16 @@ impl<VM: VMBinding> Space<VM> for MarkCompactSpace<VM> {
 
 impl<VM: VMBinding> crate::policy::gc_work::PolicyTraceObject<VM> for MarkCompactSpace<VM> {
     #[inline(always)]
-    fn trace_object<T: TransitiveClosure, const KIND: crate::policy::gc_work::TraceKind>(
+    fn trace_object<const KIND: crate::policy::gc_work::TraceKind>(
         &self,
-        trace: &mut T,
         object: ObjectReference,
         _copy: Option<CopySemantics>,
         _worker: &mut GCWorker<VM>,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         if KIND == TRACE_KIND_MARK {
-            self.trace_mark_object(trace, object)
+            self.trace_mark_object(object)
         } else if KIND == TRACE_KIND_FORWARD {
-            self.trace_forward_object(trace, object)
+            self.trace_forward_object(object)
         } else {
             unreachable!()
         }
@@ -224,27 +222,26 @@ impl<VM: VMBinding> MarkCompactSpace<VM> {
 
     pub fn release(&self) {}
 
-    pub fn trace_mark_object<T: TransitiveClosure>(
+    pub fn trace_mark_object(
         &self,
-        trace: &mut T,
         object: ObjectReference,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         debug_assert!(
             crate::util::alloc_bit::is_alloced(object),
             "{:x}: alloc bit not set",
             object
         );
         if MarkCompactSpace::<VM>::test_and_mark(object) {
-            trace.process_node(object);
+            TraceObjectResult::first_visit(object)
+        } else {
+            TraceObjectResult::revisit()
         }
-        object
     }
 
-    pub fn trace_forward_object<T: TransitiveClosure>(
+    pub fn trace_forward_object(
         &self,
-        trace: &mut T,
         object: ObjectReference,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         debug_assert!(
             crate::util::alloc_bit::is_alloced(object),
             "{:x}: alloc bit not set",
@@ -252,11 +249,14 @@ impl<VM: VMBinding> MarkCompactSpace<VM> {
         );
         // from this stage and onwards, mark bit is no longer needed
         // therefore, it can be reused to save one extra bit in metadata
-        if MarkCompactSpace::<VM>::test_and_clear_mark(object) {
-            trace.process_node(object);
-        }
+        let partial_result = if MarkCompactSpace::<VM>::test_and_clear_mark(object) {
+            TraceObjectResult::first_visit(object)
+        } else {
+            TraceObjectResult::revisit()
+        };
 
-        Self::get_header_forwarding_pointer(object)
+        let new_object = Self::get_header_forwarding_pointer(object);
+        partial_result.into_forward(new_object)
     }
 
     pub fn test_and_mark(object: ObjectReference) -> bool {

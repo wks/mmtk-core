@@ -8,8 +8,6 @@ use crate::util::constants::CARD_META_PAGES_PER_REGION;
 use crate::util::metadata::{compare_exchange_metadata, load_metadata, store_metadata};
 use crate::util::{metadata, ObjectReference};
 
-use crate::plan::TransitiveClosure;
-
 use crate::plan::PlanConstraints;
 use crate::policy::space::SpaceOptions;
 use crate::policy::space::*;
@@ -80,12 +78,10 @@ impl<VM: VMBinding> SFT for ImmortalSpace<VM> {
     #[inline(always)]
     fn sft_trace_object(
         &self,
-        trace: SFTProcessEdgesMutRef,
         object: ObjectReference,
         _worker: GCWorkerMutRef,
-    ) -> ObjectReference {
-        let trace = trace.into_mut::<VM>();
-        self.trace_object(trace, object)
+    ) -> TraceObjectResult {
+        self.trace_object(object)
     }
 }
 
@@ -116,14 +112,13 @@ use crate::util::copy::CopySemantics;
 
 impl<VM: VMBinding> crate::policy::gc_work::PolicyTraceObject<VM> for ImmortalSpace<VM> {
     #[inline(always)]
-    fn trace_object<T: TransitiveClosure, const KIND: crate::policy::gc_work::TraceKind>(
+    fn trace_object<const KIND: crate::policy::gc_work::TraceKind>(
         &self,
-        trace: &mut T,
         object: ObjectReference,
         _copy: Option<CopySemantics>,
         _worker: &mut GCWorker<VM>,
-    ) -> ObjectReference {
-        self.trace_object(trace, object)
+    ) -> TraceObjectResult {
+        self.trace_object(object)
     }
     #[inline(always)]
     fn may_move_objects<const KIND: crate::policy::gc_work::TraceKind>() -> bool {
@@ -211,11 +206,10 @@ impl<VM: VMBinding> ImmortalSpace<VM> {
 
     pub fn release(&mut self) {}
 
-    pub fn trace_object<T: TransitiveClosure>(
+    pub fn trace_object(
         &self,
-        trace: &mut T,
         object: ObjectReference,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         #[cfg(feature = "global_alloc_bit")]
         debug_assert!(
             crate::util::alloc_bit::is_alloced(object),
@@ -223,8 +217,9 @@ impl<VM: VMBinding> ImmortalSpace<VM> {
             object
         );
         if ImmortalSpace::<VM>::test_and_mark(object, self.mark_state) {
-            trace.process_node(object);
+            TraceObjectResult::first_visit(object)
+        } else {
+            TraceObjectResult::revisit()
         }
-        object
     }
 }

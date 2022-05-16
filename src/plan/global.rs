@@ -4,11 +4,10 @@ use super::gc_requester::GCRequester;
 use super::PlanConstraints;
 use crate::mmtk::MMTK;
 use crate::plan::generational::global::Gen;
-use crate::plan::transitive_closure::TransitiveClosure;
 use crate::plan::Mutator;
 use crate::policy::immortalspace::ImmortalSpace;
 use crate::policy::largeobjectspace::LargeObjectSpace;
-use crate::policy::space::Space;
+use crate::policy::space::{Space, TraceObjectResult};
 use crate::scheduler::*;
 use crate::util::alloc::allocators::AllocatorSelector;
 #[cfg(feature = "analysis")]
@@ -601,33 +600,32 @@ impl<VM: VMBinding> BasePlan<VM> {
         pages
     }
 
-    pub fn trace_object<T: TransitiveClosure>(
+    pub fn trace_object(
         &self,
-        _trace: &mut T,
         _object: ObjectReference,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         #[cfg(feature = "code_space")]
         if self.code_space.in_space(_object) {
             trace!("trace_object: object in code space");
-            return self.code_space.trace_object::<T>(_trace, _object);
+            return self.code_space.trace_object(_object);
         }
 
         #[cfg(feature = "code_space")]
         if self.code_lo_space.in_space(_object) {
             trace!("trace_object: object in large code space");
-            return self.code_lo_space.trace_object::<T>(_trace, _object);
+            return self.code_lo_space.trace_object(_object);
         }
 
         #[cfg(feature = "ro_space")]
         if self.ro_space.in_space(_object) {
             trace!("trace_object: object in ro_space space");
-            return self.ro_space.trace_object(_trace, _object);
+            return self.ro_space.trace_object(_object);
         }
 
         #[cfg(feature = "vm_space")]
         if self.vm_space.in_space(_object) {
             trace!("trace_object: object in boot space");
-            return self.vm_space.trace_object(_trace, _object);
+            return self.vm_space.trace_object(_object);
         }
         panic!("No special case for space in trace_object({:?})", _object);
     }
@@ -903,20 +901,19 @@ impl<VM: VMBinding> CommonPlan<VM> {
         self.immortal.reserved_pages() + self.los.reserved_pages() + self.base.get_used_pages()
     }
 
-    pub fn trace_object<T: TransitiveClosure>(
+    pub fn trace_object(
         &self,
-        trace: &mut T,
         object: ObjectReference,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         if self.immortal.in_space(object) {
             trace!("trace_object: object in immortal space");
-            return self.immortal.trace_object(trace, object);
+            return self.immortal.trace_object(object);
         }
         if self.los.in_space(object) {
             trace!("trace_object: object in los");
-            return self.los.trace_object(trace, object);
+            return self.los.trace_object(object);
         }
-        self.base.trace_object::<T>(trace, object)
+        self.base.trace_object(object)
     }
 
     pub fn prepare(&mut self, tls: VMWorkerThread, full_heap: bool) {
@@ -974,12 +971,11 @@ pub trait PlanTraceObject<VM: VMBinding> {
     /// * `trace`: the current transitive closure
     /// * `object`: the object to trace. This is a non-nullable object reference.
     /// * `worker`: the GC worker that is tracing this object.
-    fn trace_object<T: TransitiveClosure, const KIND: TraceKind>(
+    fn trace_object<const KIND: TraceKind>(
         &self,
-        trace: &mut T,
         object: ObjectReference,
         worker: &mut GCWorker<VM>,
-    ) -> ObjectReference;
+    ) -> TraceObjectResult;
 
     /// Post-scan objects in the plan. Each object is scanned by `VM::VMScanning::scan_object()`, and this function
     /// will be called after the `VM::VMScanning::scan_object()` as a hook to invoke possible policy post scan method.
