@@ -113,7 +113,7 @@ pub trait SFT {
         trace: SFTProcessEdgesMutRef,
         object: ObjectReference,
         worker: GCWorkerMutRef,
-    ) -> ObjectReference;
+    ) -> TraceObjectResult;
 }
 
 // Create erased VM refs for these types that will be used in `sft_trace_object()`.
@@ -179,7 +179,7 @@ impl SFT for EmptySpaceSFT {
         _trace: SFTProcessEdgesMutRef,
         _object: ObjectReference,
         _worker: GCWorkerMutRef,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         panic!(
             "Call trace_object() on {} (chunk {}), which maps to an empty space",
             _object,
@@ -373,6 +373,38 @@ impl<'a> SFTMap<'a> {
             object_start_sft.name(),
             object_sft.name()
         );
+    }
+}
+
+#[cfg(feature = "trace_object_result")]
+pub struct TraceObjectResult {
+    pub forwarded_ref: Option<ObjectReference>
+}
+
+#[cfg(feature = "trace_object_result")]
+impl TraceObjectResult {
+    #[inline(always)]
+    pub fn forwarded(object: ObjectReference) -> TraceObjectResult {
+        TraceObjectResult { forwarded_ref: Some(object) }
+    }
+    #[inline(always)]
+    pub fn not_forwarded(_object: ObjectReference) -> TraceObjectResult {
+        TraceObjectResult { forwarded_ref: None }
+    }
+}
+
+#[cfg(not(feature = "trace_object_result"))]
+pub type TraceObjectResult = ObjectReference;
+
+#[cfg(not(feature = "trace_object_result"))]
+impl TraceObjectResult {
+    #[inline(always)]
+    pub fn forwarded(object: ObjectReference) -> TraceObjectResult {
+        object
+    }
+    #[inline(always)]
+    pub fn not_forwarded(object: ObjectReference) -> TraceObjectResult {
+        object
     }
 }
 

@@ -8,7 +8,7 @@ use crate::plan::transitive_closure::TransitiveClosure;
 use crate::plan::Mutator;
 use crate::policy::immortalspace::ImmortalSpace;
 use crate::policy::largeobjectspace::LargeObjectSpace;
-use crate::policy::space::Space;
+use crate::policy::space::{Space, TraceObjectResult};
 use crate::scheduler::*;
 use crate::util::alloc::allocators::AllocatorSelector;
 #[cfg(feature = "analysis")]
@@ -605,7 +605,7 @@ impl<VM: VMBinding> BasePlan<VM> {
         &self,
         _trace: &mut T,
         _object: ObjectReference,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         #[cfg(feature = "code_space")]
         if self.code_space.in_space(_object) {
             trace!("trace_object: object in code space");
@@ -907,7 +907,7 @@ impl<VM: VMBinding> CommonPlan<VM> {
         &self,
         trace: &mut T,
         object: ObjectReference,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         if self.immortal.in_space(object) {
             trace!("trace_object: object in immortal space");
             return self.immortal.trace_object(trace, object);
@@ -979,7 +979,7 @@ pub trait PlanTraceObject<VM: VMBinding> {
         trace: &mut T,
         object: ObjectReference,
         worker: &mut GCWorker<VM>,
-    ) -> ObjectReference;
+    ) -> TraceObjectResult;
 
     /// Post-scan objects in the plan. Each object is scanned by `VM::VMScanning::scan_object()`, and this function
     /// will be called after the `VM::VMScanning::scan_object()` as a hook to invoke possible policy post scan method.

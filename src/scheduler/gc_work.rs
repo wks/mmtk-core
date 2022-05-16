@@ -2,6 +2,7 @@ use super::work_bucket::WorkBucketStage;
 use super::*;
 use crate::plan::GcStatus;
 use crate::plan::ObjectsClosure;
+use crate::policy::space::TraceObjectResult;
 use crate::util::metadata::*;
 use crate::util::*;
 use crate::vm::*;
@@ -398,7 +399,7 @@ pub trait ProcessEdgesWork:
     const OVERWRITE_REFERENCE: bool = true;
     const SCAN_OBJECTS_IMMEDIATELY: bool = true;
     fn new(edges: Vec<Address>, roots: bool, mmtk: &'static MMTK<Self::VM>) -> Self;
-    fn trace_object(&mut self, object: ObjectReference) -> ObjectReference;
+    fn trace_object(&mut self, object: ObjectReference) -> TraceObjectResult;
 
     #[cfg(feature = "sanity")]
     fn cache_roots_for_sanity_gc(&mut self) {
@@ -460,10 +461,23 @@ pub trait ProcessEdgesWork:
     #[inline]
     fn process_edge(&mut self, slot: Address) {
         let object = unsafe { slot.load::<ObjectReference>() };
-        let new_object = self.trace_object(object);
-        if Self::OVERWRITE_REFERENCE {
-            unsafe { slot.store(new_object) };
+        #[cfg(not(feature = "trace_object_result"))]
+        {
+            let new_object = self.trace_object(object);
+            if Self::OVERWRITE_REFERENCE {
+                unsafe { slot.store(new_object) };
+            }
         }
+        #[cfg(feature = "trace_object_result")]
+        {
+            let TraceObjectResult { forwarded_ref } = self.trace_object(object);
+            if Self::OVERWRITE_REFERENCE {
+                if let Some(new_object) = forwarded_ref {
+                    unsafe { slot.store(new_object) };
+                }
+            }
+        }
+
     }
 
     #[inline]
@@ -510,11 +524,11 @@ impl<VM: VMBinding> ProcessEdgesWork for SFTProcessEdges<VM> {
     }
 
     #[inline]
-    fn trace_object(&mut self, object: ObjectReference) -> ObjectReference {
+    fn trace_object(&mut self, object: ObjectReference) -> TraceObjectResult {
         use crate::policy::space::*;
 
         if object.is_null() {
-            return object;
+            return TraceObjectResult::not_forwarded(object);
         }
 
         // Make sure we have valid SFT entries for the object.
@@ -648,9 +662,9 @@ impl<VM: VMBinding, P: PlanTraceObject<VM> + Plan<VM = VM>, const KIND: TraceKin
     }
 
     #[inline(always)]
-    fn trace_object(&mut self, object: ObjectReference) -> ObjectReference {
+    fn trace_object(&mut self, object: ObjectReference) -> TraceObjectResult {
         if object.is_null() {
-            return object;
+            return TraceObjectResult::not_forwarded(object);
         }
         self.plan
             .trace_object::<Self, KIND>(self, object, self.worker())
@@ -659,9 +673,21 @@ impl<VM: VMBinding, P: PlanTraceObject<VM> + Plan<VM = VM>, const KIND: TraceKin
     #[inline]
     fn process_edge(&mut self, slot: Address) {
         let object = unsafe { slot.load::<ObjectReference>() };
-        let new_object = self.trace_object(object);
-        if P::may_move_objects::<KIND>() {
-            unsafe { slot.store(new_object) };
+        #[cfg(not(feature = "trace_object_result"))]
+        {
+            let new_object = self.trace_object(object);
+            if P::may_move_objects::<KIND>() {
+                unsafe { slot.store(new_object) };
+            }
+        }
+        #[cfg(feature = "trace_object_result")]
+        {
+            let TraceObjectResult { forwarded_ref } = self.trace_object(object);
+            if P::may_move_objects::<KIND>() {
+                if let Some(new_object) = forwarded_ref {
+                    unsafe { slot.store(new_object) };
+                }
+            }
         }
     }
 }

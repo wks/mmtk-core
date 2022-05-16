@@ -70,7 +70,7 @@ impl<VM: VMBinding> SFT for MarkCompactSpace<VM> {
         _trace: SFTProcessEdgesMutRef,
         _object: ObjectReference,
         _worker: GCWorkerMutRef,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         // We should not use trace_object for markcompact space.
         // Depending on which trace it is, we should manually call either trace_mark or trace_forward.
         panic!("sft_trace_object() cannot be used with mark compact space")
@@ -111,7 +111,7 @@ impl<VM: VMBinding> crate::policy::gc_work::PolicyTraceObject<VM> for MarkCompac
         object: ObjectReference,
         _copy: Option<CopySemantics>,
         _worker: &mut GCWorker<VM>,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         if KIND == TRACE_KIND_MARK {
             self.trace_mark_object(trace, object)
         } else if KIND == TRACE_KIND_FORWARD {
@@ -228,7 +228,7 @@ impl<VM: VMBinding> MarkCompactSpace<VM> {
         &self,
         trace: &mut T,
         object: ObjectReference,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         debug_assert!(
             crate::util::alloc_bit::is_alloced(object),
             "{:x}: alloc bit not set",
@@ -237,14 +237,14 @@ impl<VM: VMBinding> MarkCompactSpace<VM> {
         if MarkCompactSpace::<VM>::test_and_mark(object) {
             trace.process_node(object);
         }
-        object
+        TraceObjectResult::not_forwarded(object)
     }
 
     pub fn trace_forward_object<T: TransitiveClosure>(
         &self,
         trace: &mut T,
         object: ObjectReference,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         debug_assert!(
             crate::util::alloc_bit::is_alloced(object),
             "{:x}: alloc bit not set",
@@ -256,7 +256,7 @@ impl<VM: VMBinding> MarkCompactSpace<VM> {
             trace.process_node(object);
         }
 
-        Self::get_header_forwarding_pointer(object)
+        TraceObjectResult::forwarded(Self::get_header_forwarding_pointer(object))
     }
 
     pub fn test_and_mark(object: ObjectReference) -> bool {

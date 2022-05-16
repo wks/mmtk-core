@@ -221,7 +221,8 @@ impl ReferenceProcessor {
         e: &mut E,
         referent: ObjectReference,
     ) -> ObjectReference {
-        e.trace_object(referent)
+        // TODO: Should ensure it doesn't enqueue at this moment.
+        e.trace_object(referent).forwarded_ref.unwrap_or(referent)
     }
 
     #[inline(always)]
@@ -229,7 +230,7 @@ impl ReferenceProcessor {
         e: &mut E,
         object: ObjectReference,
     ) -> ObjectReference {
-        e.trace_object(object)
+        e.trace_object(object).forwarded_ref.unwrap_or(object)
     }
 
     #[inline(always)]
@@ -237,7 +238,7 @@ impl ReferenceProcessor {
         e: &mut E,
         referent: ObjectReference,
     ) -> ObjectReference {
-        e.trace_object(referent)
+        e.trace_object(referent).forwarded_ref.unwrap_or(referent)
     }
 
     /// Inform the binding to enqueue the weak references whose referents were cleared in this GC.

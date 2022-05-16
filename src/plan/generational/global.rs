@@ -4,6 +4,7 @@ use crate::plan::PlanConstraints;
 use crate::plan::TransitiveClosure;
 use crate::policy::copyspace::CopySpace;
 use crate::policy::space::Space;
+use crate::policy::space::TraceObjectResult;
 use crate::scheduler::*;
 use crate::util::conversions;
 use crate::util::copy::CopySemantics;
@@ -183,7 +184,7 @@ impl<VM: VMBinding> Gen<VM> {
         trace: &mut T,
         object: ObjectReference,
         worker: &mut GCWorker<VM>,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         if self.nursery.in_space(object) {
             return self.nursery.trace_object::<T>(
                 trace,
@@ -201,7 +202,7 @@ impl<VM: VMBinding> Gen<VM> {
         trace: &mut T,
         object: ObjectReference,
         worker: &mut GCWorker<VM>,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         // Evacuate nursery objects
         if self.nursery.in_space(object) {
             return self.nursery.trace_object::<T>(
@@ -215,7 +216,7 @@ impl<VM: VMBinding> Gen<VM> {
         if self.common.get_los().in_space(object) {
             return self.common.get_los().trace_object::<T>(trace, object);
         }
-        object
+        TraceObjectResult::not_forwarded(object)
     }
 
     /// Is the current GC a nursery GC?

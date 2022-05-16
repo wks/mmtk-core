@@ -63,7 +63,7 @@ impl<VM: VMBinding> SFT for LockFreeImmortalSpace<VM> {
         _trace: SFTProcessEdgesMutRef,
         _object: ObjectReference,
         _worker: GCWorkerMutRef,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         unreachable!()
     }
 }
@@ -161,7 +161,7 @@ impl<VM: VMBinding> crate::policy::gc_work::PolicyTraceObject<VM> for LockFreeIm
         _object: ObjectReference,
         _copy: Option<CopySemantics>,
         _worker: &mut GCWorker<VM>,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         unreachable!()
     }
     #[inline(always)]

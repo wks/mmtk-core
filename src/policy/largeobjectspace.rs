@@ -86,7 +86,7 @@ impl<VM: VMBinding> SFT for LargeObjectSpace<VM> {
         trace: SFTProcessEdgesMutRef,
         object: ObjectReference,
         _worker: GCWorkerMutRef,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         let trace = trace.into_mut::<VM>();
         self.trace_object(trace, object)
     }
@@ -126,7 +126,7 @@ impl<VM: VMBinding> crate::policy::gc_work::PolicyTraceObject<VM> for LargeObjec
         object: ObjectReference,
         _copy: Option<CopySemantics>,
         _worker: &mut GCWorker<VM>,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         self.trace_object(trace, object)
     }
     #[inline(always)]
@@ -205,7 +205,7 @@ impl<VM: VMBinding> LargeObjectSpace<VM> {
         &self,
         trace: &mut T,
         object: ObjectReference,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         #[cfg(feature = "global_alloc_bit")]
         debug_assert!(
             crate::util::alloc_bit::is_alloced(object),
@@ -227,7 +227,7 @@ impl<VM: VMBinding> LargeObjectSpace<VM> {
                 trace.process_node(object);
             }
         }
-        object
+        TraceObjectResult::not_forwarded(object)
     }
 
     fn sweep_large_pages(&mut self, sweep_nursery: bool) {

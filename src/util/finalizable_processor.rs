@@ -37,14 +37,14 @@ impl FinalizableProcessor {
         e: &mut E,
         object: ObjectReference,
     ) -> ObjectReference {
-        e.trace_object(object)
+        e.trace_object(object).forwarded_ref.unwrap_or(object)
     }
 
     fn return_for_finalize<E: ProcessEdgesWork>(
         e: &mut E,
         object: ObjectReference,
     ) -> ObjectReference {
-        e.trace_object(object)
+        e.trace_object(object).forwarded_ref.unwrap_or(object)
     }
 
     pub fn scan<E: ProcessEdgesWork>(&mut self, tls: VMWorkerThread, e: &mut E, nursery: bool) {

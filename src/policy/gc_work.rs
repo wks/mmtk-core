@@ -12,6 +12,8 @@ use crate::util::ObjectReference;
 
 use crate::vm::VMBinding;
 
+use super::space::TraceObjectResult;
+
 /// This trait defines policy-specific behavior for tracing objects.
 /// The procedural macro #[derive(PlanTraceObject)] will generate code
 /// that uses this trait. We expect any policy to implement this trait.
@@ -26,7 +28,7 @@ pub trait PolicyTraceObject<VM: VMBinding> {
         object: ObjectReference,
         copy: Option<CopySemantics>,
         worker: &mut GCWorker<VM>,
-    ) -> ObjectReference;
+    ) -> TraceObjectResult;
 
     /// Policy-specific post-scan-object hook.  It is called after scanning
     /// each object in this space.

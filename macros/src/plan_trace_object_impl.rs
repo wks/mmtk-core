@@ -54,7 +54,7 @@ pub(crate) fn generate_trace_object<'a>(
 
     quote! {
         #[inline(always)]
-        fn trace_object<T: crate::plan::TransitiveClosure, const KIND: crate::policy::gc_work::TraceKind>(&self, __mmtk_trace: &mut T, __mmtk_objref: crate::util::ObjectReference, __mmtk_worker: &mut crate::scheduler::GCWorker<VM>) -> crate::util::ObjectReference {
+        fn trace_object<T: crate::plan::TransitiveClosure, const KIND: crate::policy::gc_work::TraceKind>(&self, __mmtk_trace: &mut T, __mmtk_objref: crate::util::ObjectReference, __mmtk_worker: &mut crate::scheduler::GCWorker<VM>) -> crate::policy::space::TraceObjectResult {
             use crate::policy::space::Space;
             use crate::policy::gc_work::PolicyTraceObject;
             use crate::plan::PlanTraceObject;

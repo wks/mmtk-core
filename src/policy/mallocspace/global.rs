@@ -100,7 +100,7 @@ impl<VM: VMBinding> SFT for MallocSpace<VM> {
         trace: SFTProcessEdgesMutRef,
         object: ObjectReference,
         _worker: GCWorkerMutRef,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         let trace = trace.into_mut::<VM>();
         self.trace_object(trace, object)
     }
@@ -200,7 +200,7 @@ impl<VM: VMBinding> crate::policy::gc_work::PolicyTraceObject<VM> for MallocSpac
         object: ObjectReference,
         _copy: Option<CopySemantics>,
         _worker: &mut GCWorker<VM>,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         self.trace_object(trace, object)
     }
 
@@ -305,9 +305,9 @@ impl<VM: VMBinding> MallocSpace<VM> {
         &self,
         trace: &mut T,
         object: ObjectReference,
-    ) -> ObjectReference {
+    ) -> TraceObjectResult {
         if object.is_null() {
-            return object;
+            return TraceObjectResult::not_forwarded(object);
         }
 
         let address = object.to_address();
@@ -324,7 +324,7 @@ impl<VM: VMBinding> MallocSpace<VM> {
             trace.process_node(object);
         }
 
-        object
+        TraceObjectResult::not_forwarded(object)
     }
 
     fn map_metadata_and_update_bound(&self, addr: Address, size: usize) {
