@@ -1,6 +1,5 @@
 use crate::plan::MutatorContext;
-use crate::scheduler::gc_work::ProcessEdgesWork;
-use crate::scheduler::*;
+use crate::{scheduler::*, Mutator};
 use crate::util::alloc::AllocationError;
 use crate::util::opaque_pointer::*;
 use crate::vm::VMBinding;
@@ -29,7 +28,8 @@ pub trait Collection<VM: VMBinding> {
     ///
     /// Arguments:
     /// * `tls`: The thread pointer for the GC controller/coordinator.
-    fn stop_all_mutators<E: ProcessEdgesWork<VM = VM>>(tls: VMWorkerThread);
+    fn stop_all_mutators<F>(tls: VMWorkerThread, mutator_visitor: F)
+        where F: FnMut(&'static mut Mutator<VM>);
 
     /// Resume all the mutator threads, the opposite of the above. When a GC is finished, MMTk calls this method.
     ///
@@ -101,5 +101,5 @@ pub trait Collection<VM: VMBinding> {
     fn vm_release() {}
 
     /// Delegate to the VM binding for reference processing.
-    fn process_weak_refs<E: ProcessEdgesWork<VM = VM>>(_worker: &mut GCWorker<VM>) {}
+    fn process_weak_refs(_worker: &mut GCWorker<VM>) {} // FIXME: Add an appropriate factory/callback parameter.
 }
