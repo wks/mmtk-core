@@ -7,7 +7,12 @@ use crate::vm::VMBinding;
 pub trait EdgeVisitor {
     /// Call this function for each edge.
     fn visit_edge(&mut self, edge: Address);
-    // TODO: Add visit_soft_edge, visit_weak_edge, ... here.
+}
+
+impl<F: FnMut(Address)> EdgeVisitor for F {
+    fn visit_edge(&mut self, edge: Address) {
+        self(edge)
+    }
 }
 
 /// Root-scanning methods use this trait to spawn work packets for processing roots.

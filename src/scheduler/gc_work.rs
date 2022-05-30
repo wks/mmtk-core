@@ -184,9 +184,7 @@ impl<E: ProcessEdgesWork> GCWork<E::VM> for StopMutators<E> {
         trace!("stop_all_mutators start");
         mmtk.plan.base().prepare_for_stack_scanning();
         <E::VM as VMBinding>::VMCollection::stop_all_mutators(worker.tls, |mutator| {
-            mmtk.scheduler.work_buckets[WorkBucketStage::Prepare].add(
-                ScanStackRoot::<E>(mutator),
-            );
+            mmtk.scheduler.work_buckets[WorkBucketStage::Prepare].add(ScanStackRoot::<E>(mutator));
         });
         trace!("stop_all_mutators end");
         mmtk.scheduler.notify_mutators_paused(mmtk);
@@ -265,7 +263,7 @@ impl<E: ProcessEdgesWork> VMProcessWeakRefs<E> {
 impl<E: ProcessEdgesWork> GCWork<E::VM> for VMProcessWeakRefs<E> {
     fn do_work(&mut self, worker: &mut GCWorker<E::VM>, _mmtk: &'static MMTK<E::VM>) {
         trace!("ProcessWeakRefs");
-        <E::VM as VMBinding>::VMCollection::process_weak_refs(worker);  // TODO: Pass a factory/callback to decide what work packet to create.
+        <E::VM as VMBinding>::VMCollection::process_weak_refs(worker); // TODO: Pass a factory/callback to decide what work packet to create.
     }
 }
 
@@ -328,10 +326,7 @@ impl<E: ProcessEdgesWork> GCWork<E::VM> for ScanVMSpecificRoots<E> {
     fn do_work(&mut self, worker: &mut GCWorker<E::VM>, mmtk: &'static MMTK<E::VM>) {
         trace!("ScanStaticRoots");
         let factory = ProcessEdgesWorkRootsWorkFactory::<E>::new(mmtk);
-        <E::VM as VMBinding>::VMScanning::scan_vm_specific_roots(
-            worker.tls,
-            factory,
-        );
+        <E::VM as VMBinding>::VMScanning::scan_vm_specific_roots(worker.tls, factory);
     }
 }
 
@@ -553,7 +548,8 @@ impl<E: ProcessEdgesWork> RootsWorkFactory for ProcessEdgesWorkRootsWorkFactory<
         crate::memory_manager::add_work_packet(
             self.mmtk,
             WorkBucketStage::Closure,
-            E::new(edges, true, self.mmtk));
+            E::new(edges, true, self.mmtk),
+        );
     }
 
     fn create_process_node_roots_work(&self, _nodes: Vec<ObjectReference>) {
@@ -761,5 +757,124 @@ impl<E: ProcessEdgesWork, P: Plan<VM = E::VM> + PlanTraceObject<E::VM>> GCWork<E
             }
         }
         trace!("PlanScanObjects End");
+    }
+}
+
+pub trait TracingDelegate<VM: VMBinding>: 'static + Copy + Send {
+    fn trace_object<T: TransitiveClosure>(
+        &self,
+        trace: &mut T,
+        object: ObjectReference,
+        worker: &mut GCWorker<VM>,
+    ) -> ObjectReference;
+
+    fn may_move_objects() -> bool;
+
+    fn post_scan_object(&self, object: ObjectReference);
+}
+
+pub struct TracingProcessEdges<VM: VMBinding, D: TracingDelegate<VM>> {
+    edges: Vec<Address>,
+    roots: bool,
+    delegate: D,
+    phantom_data: PhantomData<VM>,
+}
+
+impl<VM: VMBinding, D: TracingDelegate<VM>> TracingProcessEdges<VM, D> {
+    const SCAN_OBJECTS_IMMEDIATELY: bool = true;
+
+    pub fn new(edges: Vec<Address>, roots: bool, delegate: D) -> Self {
+        Self {
+            edges,
+            roots,
+            delegate,
+            phantom_data: PhantomData,
+        }
+    }
+}
+
+const OBJECT_QUEUE_CAPACITY: usize = 4096;
+
+impl TransitiveClosure for Vec<ObjectReference> {
+    #[inline]
+    fn process_node(&mut self, object: ObjectReference) {
+        if self.is_empty() {
+            self.reserve(OBJECT_QUEUE_CAPACITY);
+        }
+        self.push(object);
+    }
+}
+
+impl<VM: VMBinding, D: TracingDelegate<VM>> GCWork<VM> for TracingProcessEdges<VM, D> {
+    fn do_work(&mut self, worker: &mut GCWorker<VM>, mmtk: &'static MMTK<VM>) {
+        trace!("TracingProcessEdges");
+        let mut queue = Vec::<ObjectReference>::new();
+        for edge in self.edges.iter() {
+            let object = unsafe { edge.load::<ObjectReference>() };
+            let new_object = self.delegate.trace_object(&mut queue, object, worker);
+            if D::may_move_objects() {
+                unsafe { edge.store(new_object) };
+            }
+        }
+
+        if !queue.is_empty() {
+            let mut process_nodes_work = TracingProcessNodes::new(queue, self.delegate);
+
+            if Self::SCAN_OBJECTS_IMMEDIATELY {
+                process_nodes_work.do_work(worker, mmtk);
+            } else {
+                worker.add_work(WorkBucketStage::Closure, process_nodes_work);
+            }
+        }
+
+        trace!("TracingProcessEdges End");
+    }
+}
+
+pub struct TracingProcessNodes<VM: VMBinding, D: TracingDelegate<VM>> {
+    nodes: Vec<ObjectReference>,
+    delegate: D,
+    phantom_data: PhantomData<VM>,
+}
+
+impl<VM: VMBinding, D: TracingDelegate<VM>> TracingProcessNodes<VM, D> {
+    const EDGE_QUEUE_CAPACITY: usize = 4096;
+
+    pub fn new(nodes: Vec<ObjectReference>, delegate: D) -> Self {
+        Self {
+            nodes,
+            delegate,
+            phantom_data: PhantomData,
+        }
+    }
+
+    fn flush_queue(&self, new_edges: Vec<Address>, worker: &mut GCWorker<VM>) {
+        worker.add_work(
+            WorkBucketStage::Closure,
+            TracingProcessEdges::new(new_edges, false, self.delegate),
+        );
+    }
+}
+
+impl<VM: VMBinding, D: TracingDelegate<VM>> GCWork<VM> for TracingProcessNodes<VM, D> {
+    fn do_work(&mut self, worker: &mut GCWorker<VM>, _mmtk: &'static MMTK<VM>) {
+        trace!("TracingProcessNodes");
+        let tls = worker.tls;
+        let mut queue = Vec::<Address>::new();
+        for node in self.nodes.iter() {
+            <VM as VMBinding>::VMScanning::scan_object(tls, *node, &mut |edge| {
+                queue.push(edge);
+                if queue.len() >= Self::EDGE_QUEUE_CAPACITY {
+                    self.flush_queue(std::mem::take(&mut queue), worker);
+                }
+            });
+            self.delegate.post_scan_object(*node);
+        }
+
+        if !queue.is_empty() {
+            self.flush_queue(queue, worker);
+        }
+
+        trace!("TracingProcessNodes End");
     }
 }
