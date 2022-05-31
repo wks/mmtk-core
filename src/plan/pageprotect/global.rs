@@ -1,5 +1,6 @@
 use super::gc_work::PPGCWorkContext;
 use super::mutator::ALLOCATOR_MAPPING;
+use crate::MMTK;
 use crate::plan::global::GcStatus;
 use crate::plan::AllocationSemantics;
 use crate::plan::Plan;
@@ -59,10 +60,10 @@ impl<VM: VMBinding> Plan for PageProtect<VM> {
         self.space.init(vm_map);
     }
 
-    fn schedule_collection(&'static self, scheduler: &GCWorkScheduler<VM>) {
+    fn schedule_collection(&'static self, scheduler: &GCWorkScheduler<VM>, mmtk: &'static MMTK<Self::VM>) {
         self.base().set_collection_kind::<Self>(self);
         self.base().set_gc_status(GcStatus::GcPrepare);
-        scheduler.schedule_common_work::<PPGCWorkContext<VM>>(self);
+        scheduler.schedule_common_work::<PPGCWorkContext<VM>>(self, mmtk);
     }
 
     fn get_allocator_mapping(&self) -> &'static EnumMap<AllocationSemantics, AllocatorSelector> {

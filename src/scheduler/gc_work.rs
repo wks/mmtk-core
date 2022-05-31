@@ -15,7 +15,7 @@ pub struct ScheduleCollection;
 
 impl<VM: VMBinding> GCWork<VM> for ScheduleCollection {
     fn do_work(&mut self, worker: &mut GCWorker<VM>, mmtk: &'static MMTK<VM>) {
-        mmtk.plan.schedule_collection(worker.scheduler());
+        mmtk.plan.schedule_collection(worker.scheduler(), mmtk);
     }
 }
 
@@ -28,27 +28,27 @@ impl<VM: VMBinding> CoordinatorWork<VM> for ScheduleCollection {}
 /// We assume this work packet is the only running work packet that accesses plan, and there should
 /// be no other concurrent work packet that accesses plan (read or write). Otherwise, there may
 /// be a race condition.
-pub struct Prepare<C: GCWorkContext> {
-    pub plan: &'static C::PlanType,
+pub struct Prepare<VM: VMBinding> {
+    pub plan: &'static dyn Plan<VM = VM>,
 }
 
-impl<C: GCWorkContext> Prepare<C> {
-    pub fn new(plan: &'static C::PlanType) -> Self {
+impl<VM: VMBinding> Prepare<VM> {
+    pub fn new(plan: &'static dyn Plan<VM = VM>) -> Self {
         Self { plan }
     }
 }
 
-impl<C: GCWorkContext + 'static> GCWork<C::VM> for Prepare<C> {
-    fn do_work(&mut self, worker: &mut GCWorker<C::VM>, mmtk: &'static MMTK<C::VM>) {
+impl<VM: VMBinding> GCWork<VM> for Prepare<VM> {
+    fn do_work(&mut self, worker: &mut GCWorker<VM>, mmtk: &'static MMTK<VM>) {
         trace!("Prepare Global");
         // We assume this is the only running work packet that accesses plan at the point of execution
         #[allow(clippy::cast_ref_to_mut)]
-        let plan_mut: &mut C::PlanType = unsafe { &mut *(self.plan as *const _ as *mut _) };
+        let plan_mut: &mut dyn Plan<VM = VM> = unsafe { &mut *(self.plan as *const _ as *mut _) };
         plan_mut.prepare(worker.tls);
 
-        for mutator in <C::VM as VMBinding>::VMActivePlan::mutators() {
+        for mutator in <VM as VMBinding>::VMActivePlan::mutators() {
             mmtk.scheduler.work_buckets[WorkBucketStage::Prepare]
-                .add(PrepareMutator::<C::VM>::new(mutator));
+                .add(PrepareMutator::<VM>::new(mutator));
         }
         for w in &mmtk.scheduler.worker_group.workers_shared {
             let result = w.designated_work.push(Box::new(PrepareCollector));
@@ -96,28 +96,28 @@ impl<VM: VMBinding> GCWork<VM> for PrepareCollector {
 /// We assume this work packet is the only running work packet that accesses plan, and there should
 /// be no other concurrent work packet that accesses plan (read or write). Otherwise, there may
 /// be a race condition.
-pub struct Release<C: GCWorkContext> {
-    pub plan: &'static C::PlanType,
+pub struct Release<VM: VMBinding> {
+    pub plan: &'static dyn Plan<VM = VM>,
 }
 
-impl<C: GCWorkContext> Release<C> {
-    pub fn new(plan: &'static C::PlanType) -> Self {
+impl<VM: VMBinding> Release<VM> {
+    pub fn new(plan: &'static dyn Plan<VM = VM>) -> Self {
         Self { plan }
     }
 }
 
-impl<C: GCWorkContext + 'static> GCWork<C::VM> for Release<C> {
-    fn do_work(&mut self, worker: &mut GCWorker<C::VM>, mmtk: &'static MMTK<C::VM>) {
+impl<VM: VMBinding> GCWork<VM> for Release<VM> {
+    fn do_work(&mut self, worker: &mut GCWorker<VM>, mmtk: &'static MMTK<VM>) {
         trace!("Release Global");
-        <C::VM as VMBinding>::VMCollection::vm_release();
+        <VM as VMBinding>::VMCollection::vm_release();
         // We assume this is the only running work packet that accesses plan at the point of execution
         #[allow(clippy::cast_ref_to_mut)]
-        let plan_mut: &mut C::PlanType = unsafe { &mut *(self.plan as *const _ as *mut _) };
+        let plan_mut: &mut dyn Plan<VM = VM> = unsafe { &mut *(self.plan as *const _ as *mut _) };
         plan_mut.release(worker.tls);
 
-        for mutator in <C::VM as VMBinding>::VMActivePlan::mutators() {
+        for mutator in <VM as VMBinding>::VMActivePlan::mutators() {
             mmtk.scheduler.work_buckets[WorkBucketStage::Release]
-                .add(ReleaseMutator::<C::VM>::new(mutator));
+                .add(ReleaseMutator::<VM>::new(mutator));
         }
         for w in &mmtk.scheduler.worker_group.workers_shared {
             let result = w.designated_work.push(Box::new(ReleaseCollector));
@@ -162,38 +162,44 @@ impl<VM: VMBinding> GCWork<VM> for ReleaseCollector {
 /// Schedule a `ScanStackRoots` immediately after a mutator is paused
 ///
 /// TODO: Smaller work granularity
-#[derive(Default)]
-pub struct StopMutators<ScanEdges: ProcessEdgesWork>(PhantomData<ScanEdges>);
+pub struct StopMutators {
+    factory: Box<dyn RootsWorkFactory>,
+}
 
-impl<ScanEdges: ProcessEdgesWork> StopMutators<ScanEdges> {
-    pub fn new() -> Self {
-        Self(PhantomData)
+impl StopMutators {
+    pub fn new(factory: Box<dyn RootsWorkFactory>) -> Self {
+        Self { factory }
     }
 }
 
-impl<E: ProcessEdgesWork> GCWork<E::VM> for StopMutators<E> {
-    fn do_work(&mut self, worker: &mut GCWorker<E::VM>, mmtk: &'static MMTK<E::VM>) {
+impl<VM: VMBinding> GCWork<VM> for StopMutators {
+    fn do_work(&mut self, worker: &mut GCWorker<VM>, mmtk: &'static MMTK<VM>) {
         // If the VM requires that only the coordinator thread can stop the world,
         // we delegate the work to the coordinator.
-        if <E::VM as VMBinding>::VMCollection::COORDINATOR_ONLY_STW && !worker.is_coordinator() {
+        if <VM as VMBinding>::VMCollection::COORDINATOR_ONLY_STW && !worker.is_coordinator() {
             mmtk.scheduler
-                .add_coordinator_work(StopMutators::<E>::new(), worker);
+                .add_coordinator_work(StopMutators::new(self.factory.fork()), worker);
             return;
         }
 
+        let visit_mutator = |mutator| {
+            mmtk.scheduler.work_buckets[WorkBucketStage::Prepare].add(ScanStackRoot {
+                mutator,
+                factory: self.factory.fork(),
+            });
+        };
+
         trace!("stop_all_mutators start");
         mmtk.plan.base().prepare_for_stack_scanning();
-        <E::VM as VMBinding>::VMCollection::stop_all_mutators(worker.tls, |mutator| {
-            mmtk.scheduler.work_buckets[WorkBucketStage::Prepare].add(ScanStackRoot::<E>(mutator));
-        });
+        <VM as VMBinding>::VMCollection::stop_all_mutators(worker.tls, visit_mutator);
         trace!("stop_all_mutators end");
         mmtk.scheduler.notify_mutators_paused(mmtk);
-        if <E::VM as VMBinding>::VMScanning::SCAN_MUTATORS_IN_SAFEPOINT {
+        if <VM as VMBinding>::VMScanning::SCAN_MUTATORS_IN_SAFEPOINT {
             // Prepare mutators if necessary
             // FIXME: This test is probably redundant. JikesRVM requires to call `prepare_mutator` once after mutators are paused
             if !mmtk.plan.base().stacks_prepared() {
-                for mutator in <E::VM as VMBinding>::VMActivePlan::mutators() {
-                    <E::VM as VMBinding>::VMCollection::prepare_mutator(
+                for mutator in <VM as VMBinding>::VMActivePlan::mutators() {
+                    <VM as VMBinding>::VMCollection::prepare_mutator(
                         worker.tls,
                         mutator.get_tls(),
                         mutator,
@@ -201,21 +207,21 @@ impl<E: ProcessEdgesWork> GCWork<E::VM> for StopMutators<E> {
                 }
             }
             // Scan mutators
-            if <E::VM as VMBinding>::VMScanning::SINGLE_THREAD_MUTATOR_SCANNING {
+            if <VM as VMBinding>::VMScanning::SINGLE_THREAD_MUTATOR_SCANNING {
                 mmtk.scheduler.work_buckets[WorkBucketStage::Prepare]
-                    .add(ScanStackRoots::<E>::new());
+                    .add(ScanStackRoots::new(self.factory.fork()));
             } else {
-                for mutator in <E::VM as VMBinding>::VMActivePlan::mutators() {
-                    mmtk.scheduler.work_buckets[WorkBucketStage::Prepare]
-                        .add(ScanStackRoot::<E>(mutator));
+                for mutator in <VM as VMBinding>::VMActivePlan::mutators() {
+                    visit_mutator(mutator);
                 }
             }
         }
-        mmtk.scheduler.work_buckets[WorkBucketStage::Prepare].add(ScanVMSpecificRoots::<E>::new());
+        mmtk.scheduler.work_buckets[WorkBucketStage::Prepare]
+            .add(ScanVMSpecificRoots::new(self.factory.fork()));
     }
 }
 
-impl<E: ProcessEdgesWork> CoordinatorWork<E::VM> for StopMutators<E> {}
+impl<VM: VMBinding> CoordinatorWork<VM> for StopMutators {}
 
 #[derive(Default)]
 pub struct EndOfGC;
@@ -267,66 +273,72 @@ impl<E: ProcessEdgesWork> GCWork<E::VM> for VMProcessWeakRefs<E> {
     }
 }
 
-#[derive(Default)]
-pub struct ScanStackRoots<Edges: ProcessEdgesWork>(PhantomData<Edges>);
+pub struct ScanStackRoots {
+    factory: Box<dyn RootsWorkFactory>,
+}
 
-impl<E: ProcessEdgesWork> ScanStackRoots<E> {
-    pub fn new() -> Self {
-        Self(PhantomData)
+impl ScanStackRoots {
+    pub fn new(factory: Box<dyn RootsWorkFactory>) -> Self {
+        Self { factory }
     }
 }
 
-impl<E: ProcessEdgesWork> GCWork<E::VM> for ScanStackRoots<E> {
-    fn do_work(&mut self, worker: &mut GCWorker<E::VM>, mmtk: &'static MMTK<E::VM>) {
+impl<VM: VMBinding> GCWork<VM> for ScanStackRoots {
+    fn do_work(&mut self, worker: &mut GCWorker<VM>, mmtk: &'static MMTK<VM>) {
         trace!("ScanStackRoots");
-        let factory = ProcessEdgesWorkRootsWorkFactory::<E>::new(mmtk);
-        <E::VM as VMBinding>::VMScanning::scan_thread_roots(worker.tls, factory);
-        <E::VM as VMBinding>::VMScanning::notify_initial_thread_scan_complete(false, worker.tls);
-        for mutator in <E::VM as VMBinding>::VMActivePlan::mutators() {
+        <VM as VMBinding>::VMScanning::scan_thread_roots(worker.tls, self.factory.fork());
+        <VM as VMBinding>::VMScanning::notify_initial_thread_scan_complete(false, worker.tls);
+        for mutator in <VM as VMBinding>::VMActivePlan::mutators() {
             mutator.flush();
         }
         mmtk.plan.common().base.set_gc_status(GcStatus::GcProper);
     }
 }
 
-pub struct ScanStackRoot<Edges: ProcessEdgesWork>(pub &'static mut Mutator<Edges::VM>);
+pub struct ScanStackRoot<VM: VMBinding> {
+    mutator: &'static mut Mutator<VM>,
+    factory: Box<dyn RootsWorkFactory>,
+}
 
-impl<E: ProcessEdgesWork> GCWork<E::VM> for ScanStackRoot<E> {
-    fn do_work(&mut self, worker: &mut GCWorker<E::VM>, mmtk: &'static MMTK<E::VM>) {
-        trace!("ScanStackRoot for mutator {:?}", self.0.get_tls());
+impl<VM: VMBinding> ScanStackRoot<VM> {
+    pub fn new(mutator: &'static mut Mutator<VM>, factory: Box<dyn RootsWorkFactory>) -> Self {
+        Self { mutator, factory }
+    }
+}
+
+impl<VM: VMBinding> GCWork<VM> for ScanStackRoot<VM> {
+    fn do_work(&mut self, worker: &mut GCWorker<VM>, mmtk: &'static MMTK<VM>) {
+        trace!("ScanStackRoot for mutator {:?}", self.mutator.get_tls());
         let base = &mmtk.plan.base();
-        let mutators = <E::VM as VMBinding>::VMActivePlan::number_of_mutators();
-        let factory = ProcessEdgesWorkRootsWorkFactory::<E>::new(mmtk);
-        <E::VM as VMBinding>::VMScanning::scan_thread_root(
+        let mutators = <VM as VMBinding>::VMActivePlan::number_of_mutators();
+        <VM as VMBinding>::VMScanning::scan_thread_root(
             worker.tls,
-            unsafe { &mut *(self.0 as *mut _) },
-            factory,
+            unsafe { &mut *(self.mutator as *mut _) },
+            self.factory.fork(),
         );
-        self.0.flush();
+        self.mutator.flush();
 
         if mmtk.plan.base().inform_stack_scanned(mutators) {
-            <E::VM as VMBinding>::VMScanning::notify_initial_thread_scan_complete(
-                false, worker.tls,
-            );
+            <VM as VMBinding>::VMScanning::notify_initial_thread_scan_complete(false, worker.tls);
             base.set_gc_status(GcStatus::GcProper);
         }
     }
 }
 
-#[derive(Default)]
-pub struct ScanVMSpecificRoots<Edges: ProcessEdgesWork>(PhantomData<Edges>);
+pub struct ScanVMSpecificRoots {
+    factory: Box<dyn RootsWorkFactory>,
+}
 
-impl<E: ProcessEdgesWork> ScanVMSpecificRoots<E> {
-    pub fn new() -> Self {
-        Self(PhantomData)
+impl ScanVMSpecificRoots {
+    pub fn new(factory: Box<dyn RootsWorkFactory>) -> Self {
+        Self { factory }
     }
 }
 
-impl<E: ProcessEdgesWork> GCWork<E::VM> for ScanVMSpecificRoots<E> {
-    fn do_work(&mut self, worker: &mut GCWorker<E::VM>, mmtk: &'static MMTK<E::VM>) {
+impl<VM: VMBinding> GCWork<VM> for ScanVMSpecificRoots {
+    fn do_work(&mut self, worker: &mut GCWorker<VM>, _mmtk: &'static MMTK<VM>) {
         trace!("ScanStaticRoots");
-        let factory = ProcessEdgesWorkRootsWorkFactory::<E>::new(mmtk);
-        <E::VM as VMBinding>::VMScanning::scan_vm_specific_roots(worker.tls, factory);
+        <VM as VMBinding>::VMScanning::scan_vm_specific_roots(worker.tls, self.factory.fork());
     }
 }
 
@@ -539,7 +551,7 @@ impl<VM: VMBinding> ProcessEdgesWork for SFTProcessEdges<VM> {
     }
 }
 
-struct ProcessEdgesWorkRootsWorkFactory<E: ProcessEdgesWork> {
+pub struct ProcessEdgesWorkRootsWorkFactory<E: ProcessEdgesWork> {
     mmtk: &'static MMTK<E::VM>,
 }
 
@@ -562,7 +574,7 @@ impl<E: ProcessEdgesWork> RootsWorkFactory for ProcessEdgesWorkRootsWorkFactory<
 }
 
 impl<E: ProcessEdgesWork> ProcessEdgesWorkRootsWorkFactory<E> {
-    fn new(mmtk: &'static MMTK<E::VM>) -> Box<dyn RootsWorkFactory> {
+    pub fn new(mmtk: &'static MMTK<E::VM>) -> Box<dyn RootsWorkFactory> {
         Box::new(Self { mmtk })
     }
 }
@@ -760,12 +772,14 @@ impl<E: ProcessEdgesWork, P: Plan<VM = E::VM> + PlanTraceObject<E::VM>> GCWork<E
     }
 }
 
-pub trait TracingDelegate<VM: VMBinding>: 'static + Copy + Send {
+pub trait TracingDelegate: 'static + Send + Clone {
+    type VM: VMBinding;
+
     fn trace_object<T: TransitiveClosure>(
         &self,
         trace: &mut T,
         object: ObjectReference,
-        worker: &mut GCWorker<VM>,
+        worker: &mut GCWorker<Self::VM>,
     ) -> ObjectReference;
 
     fn may_move_objects() -> bool;
@@ -773,14 +787,54 @@ pub trait TracingDelegate<VM: VMBinding>: 'static + Copy + Send {
     fn post_scan_object(&self, object: ObjectReference);
 }
 
-pub struct TracingProcessEdges<VM: VMBinding, D: TracingDelegate<VM>> {
+struct PlanTracingDelegate<P: Plan + PlanTraceObject<P::VM>, const KIND: TraceKind> {
+    plan: &'static P,
+}
+
+impl<P: Plan + PlanTraceObject<P::VM>, const KIND: TraceKind> Clone
+    for PlanTracingDelegate<P, KIND>
+{
+    fn clone(&self) -> Self {
+        Self {
+            plan: self.plan.clone(),
+        }
+    }
+}
+
+impl<P: Plan + PlanTraceObject<P::VM>, const KIND: TraceKind> TracingDelegate
+    for PlanTracingDelegate<P, KIND>
+{
+    type VM = P::VM;
+
+    #[inline]
+    fn trace_object<T: TransitiveClosure>(
+        &self,
+        trace: &mut T,
+        object: ObjectReference,
+        worker: &mut GCWorker<P::VM>,
+    ) -> ObjectReference {
+        self.plan.trace_object::<T, KIND>(trace, object, worker)
+    }
+
+    #[inline(always)]
+    fn may_move_objects() -> bool {
+        P::may_move_objects::<KIND>()
+    }
+
+    #[inline]
+    fn post_scan_object(&self, object: ObjectReference) {
+        self.plan.post_scan_object(object);
+    }
+}
+
+pub struct TracingProcessEdges<VM: VMBinding, D: TracingDelegate<VM = VM>> {
     edges: Vec<Address>,
     roots: bool,
     delegate: D,
     phantom_data: PhantomData<VM>,
 }
 
-impl<VM: VMBinding, D: TracingDelegate<VM>> TracingProcessEdges<VM, D> {
+impl<VM: VMBinding, D: TracingDelegate<VM = VM>> TracingProcessEdges<VM, D> {
     const SCAN_OBJECTS_IMMEDIATELY: bool = true;
 
     pub fn new(edges: Vec<Address>, roots: bool, delegate: D) -> Self {
@@ -805,7 +859,7 @@ impl TransitiveClosure for Vec<ObjectReference> {
     }
 }
 
-impl<VM: VMBinding, D: TracingDelegate<VM>> GCWork<VM> for TracingProcessEdges<VM, D> {
+impl<VM: VMBinding, D: TracingDelegate<VM = VM>> GCWork<VM> for TracingProcessEdges<VM, D> {
     fn do_work(&mut self, worker: &mut GCWorker<VM>, mmtk: &'static MMTK<VM>) {
         trace!("TracingProcessEdges");
         let mut queue = Vec::<ObjectReference>::new();
@@ -818,7 +872,7 @@ impl<VM: VMBinding, D: TracingDelegate<VM>> GCWork<VM> for TracingProcessEdges<V
         }
 
         if !queue.is_empty() {
-            let mut process_nodes_work = TracingProcessNodes::new(queue, self.delegate);
+            let mut process_nodes_work = TracingProcessNodes::new(queue, self.delegate.clone());
 
             if Self::SCAN_OBJECTS_IMMEDIATELY {
                 process_nodes_work.do_work(worker, mmtk);
@@ -831,13 +885,13 @@ impl<VM: VMBinding, D: TracingDelegate<VM>> GCWork<VM> for TracingProcessEdges<V
     }
 }
 
-pub struct TracingProcessNodes<VM: VMBinding, D: TracingDelegate<VM>> {
+pub struct TracingProcessNodes<VM: VMBinding, D: TracingDelegate<VM = VM>> {
     nodes: Vec<ObjectReference>,
     delegate: D,
     phantom_data: PhantomData<VM>,
 }
 
-impl<VM: VMBinding, D: TracingDelegate<VM>> TracingProcessNodes<VM, D> {
+impl<VM: VMBinding, D: TracingDelegate<VM = VM>> TracingProcessNodes<VM, D> {
     const EDGE_QUEUE_CAPACITY: usize = 4096;
 
     pub fn new(nodes: Vec<ObjectReference>, delegate: D) -> Self {
@@ -851,12 +905,12 @@ impl<VM: VMBinding, D: TracingDelegate<VM>> TracingProcessNodes<VM, D> {
     fn flush_queue(&self, new_edges: Vec<Address>, worker: &mut GCWorker<VM>) {
         worker.add_work(
             WorkBucketStage::Closure,
-            TracingProcessEdges::new(new_edges, false, self.delegate),
+            TracingProcessEdges::new(new_edges, false, self.delegate.clone()),
         );
     }
 }
 
-impl<VM: VMBinding, D: TracingDelegate<VM>> GCWork<VM> for TracingProcessNodes<VM, D> {
+impl<VM: VMBinding, D: TracingDelegate<VM = VM>> GCWork<VM> for TracingProcessNodes<VM, D> {
     fn do_work(&mut self, worker: &mut GCWorker<VM>, _mmtk: &'static MMTK<VM>) {
         trace!("TracingProcessNodes");
         let tls = worker.tls;

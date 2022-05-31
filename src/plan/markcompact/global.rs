@@ -1,4 +1,3 @@
-use super::gc_work::MarkCompactGCWorkContext;
 use super::gc_work::{
     CalculateForwardingAddress, Compact, ForwardingProcessEdges, MarkingProcessEdges,
     UpdateReferences,
@@ -84,9 +83,11 @@ impl<VM: VMBinding> Plan for MarkCompact<VM> {
         &*ALLOCATOR_MAPPING
     }
 
-    fn schedule_collection(&'static self, scheduler: &GCWorkScheduler<VM>) {
+    fn schedule_collection(&'static self, scheduler: &GCWorkScheduler<VM>, mmtk: &'static crate::MMTK<Self::VM>) {
         self.base().set_collection_kind::<Self>(self);
         self.base().set_gc_status(GcStatus::GcPrepare);
+
+        let factory = ProcessEdgesWorkRootsWorkFactory::<MarkingProcessEdges<VM>>::new(mmtk);
 
         // TODO use schedule_common once it can work with markcompact
         // self.common()
@@ -98,11 +99,11 @@ impl<VM: VMBinding> Plan for MarkCompact<VM> {
 
         // Stop & scan mutators (mutator scanning can happen before STW)
         scheduler.work_buckets[WorkBucketStage::Unconstrained]
-            .add(StopMutators::<MarkingProcessEdges<VM>>::new());
+            .add(StopMutators::new(factory));
 
         // Prepare global/collectors/mutators
         scheduler.work_buckets[WorkBucketStage::Prepare]
-            .add(Prepare::<MarkCompactGCWorkContext<VM>>::new(self));
+            .add(Prepare::<VM>::new(self));
 
         scheduler.work_buckets[WorkBucketStage::CalculateForwarding]
             .add(CalculateForwardingAddress::<VM>::new(&self.mc_space));
@@ -112,7 +113,7 @@ impl<VM: VMBinding> Plan for MarkCompact<VM> {
 
         // Release global/collectors/mutators
         scheduler.work_buckets[WorkBucketStage::Release]
-            .add(Release::<MarkCompactGCWorkContext<VM>>::new(self));
+            .add(Release::<VM>::new(self));
 
         // Reference processing
         if !*self.base().options.no_reference_types {

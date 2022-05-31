@@ -155,18 +155,22 @@ impl<VM: VMBinding> GCWorkScheduler<VM> {
     pub fn schedule_common_work<C: GCWorkContext<VM = VM> + 'static>(
         &self,
         plan: &'static C::PlanType,
+        mmtk: &'static MMTK<C::VM>,
     ) {
         use crate::plan::Plan;
         use crate::scheduler::gc_work::*;
+
+        let factory = ProcessEdgesWorkRootsWorkFactory::<C::ProcessEdgesWorkType>::new(mmtk);
+
         // Stop & scan mutators (mutator scanning can happen before STW)
         self.work_buckets[WorkBucketStage::Unconstrained]
-            .add(StopMutators::<C::ProcessEdgesWorkType>::new());
+            .add(StopMutators::new(factory.fork()));
 
         // Prepare global/collectors/mutators
-        self.work_buckets[WorkBucketStage::Prepare].add(Prepare::<C>::new(plan));
+        self.work_buckets[WorkBucketStage::Prepare].add(Prepare::<C::VM>::new(plan));
 
         // Release global/collectors/mutators
-        self.work_buckets[WorkBucketStage::Release].add(Release::<C>::new(plan));
+        self.work_buckets[WorkBucketStage::Release].add(Release::<C::VM>::new(plan));
 
         // Analysis GC work
         #[cfg(feature = "analysis")]

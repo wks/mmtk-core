@@ -80,7 +80,7 @@ impl<VM: VMBinding> Plan for Immix<VM> {
         self.immix_space.init(vm_map);
     }
 
-    fn schedule_collection(&'static self, scheduler: &GCWorkScheduler<VM>) {
+    fn schedule_collection(&'static self, scheduler: &GCWorkScheduler<VM>, mmtk: &'static crate::MMTK<Self::VM>) {
         self.base().set_collection_kind::<Self>(self);
         self.base().set_gc_status(GcStatus::GcPrepare);
         let in_defrag = self.immix_space.decide_whether_to_defrag(
@@ -94,9 +94,9 @@ impl<VM: VMBinding> Plan for Immix<VM> {
         // The blocks are not identical, clippy is wrong. Probably it does not recognize the constant type parameter.
         #[allow(clippy::if_same_then_else)]
         if in_defrag {
-            scheduler.schedule_common_work::<ImmixGCWorkContext<VM, TRACE_KIND_DEFRAG>>(self);
+            scheduler.schedule_common_work::<ImmixGCWorkContext<VM, TRACE_KIND_DEFRAG>>(self, mmtk);
         } else {
-            scheduler.schedule_common_work::<ImmixGCWorkContext<VM, TRACE_KIND_FAST>>(self);
+            scheduler.schedule_common_work::<ImmixGCWorkContext<VM, TRACE_KIND_FAST>>(self, mmtk);
         }
     }
 

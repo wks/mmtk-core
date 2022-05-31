@@ -1,4 +1,5 @@
 use super::gc_work::SSGCWorkContext;
+use crate::MMTK;
 use crate::plan::global::CommonPlan;
 use crate::plan::global::GcStatus;
 use crate::plan::semispace::mutator::ALLOCATOR_MAPPING;
@@ -76,10 +77,10 @@ impl<VM: VMBinding> Plan for SemiSpace<VM> {
         self.copyspace1.init(vm_map);
     }
 
-    fn schedule_collection(&'static self, scheduler: &GCWorkScheduler<VM>) {
+    fn schedule_collection(&'static self, scheduler: &GCWorkScheduler<VM>, mmtk: &'static MMTK<Self::VM>) {
         self.base().set_collection_kind::<Self>(self);
         self.base().set_gc_status(GcStatus::GcPrepare);
-        scheduler.schedule_common_work::<SSGCWorkContext<VM>>(self);
+        scheduler.schedule_common_work::<SSGCWorkContext<VM>>(self, mmtk);
     }
 
     fn get_allocator_mapping(&self) -> &'static EnumMap<AllocationSemantics, AllocatorSelector> {

@@ -85,14 +85,14 @@ impl<VM: VMBinding> Plan for GenCopy<VM> {
         self.copyspace1.init(vm_map);
     }
 
-    fn schedule_collection(&'static self, scheduler: &GCWorkScheduler<VM>) {
+    fn schedule_collection(&'static self, scheduler: &GCWorkScheduler<VM>, mmtk: &'static crate::MMTK<Self::VM>) {
         let is_full_heap = self.request_full_heap_collection();
         self.base().set_collection_kind::<Self>(self);
         self.base().set_gc_status(GcStatus::GcPrepare);
         if is_full_heap {
-            scheduler.schedule_common_work::<GenCopyGCWorkContext<VM>>(self);
+            scheduler.schedule_common_work::<GenCopyGCWorkContext<VM>>(self, mmtk);
         } else {
-            scheduler.schedule_common_work::<GenCopyNurseryGCWorkContext<VM>>(self);
+            scheduler.schedule_common_work::<GenCopyNurseryGCWorkContext<VM>>(self, mmtk);
         }
     }
 

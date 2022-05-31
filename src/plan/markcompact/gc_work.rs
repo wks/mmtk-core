@@ -45,16 +45,18 @@ impl<VM: VMBinding> GCWork<VM> for UpdateReferences<VM> {
         #[cfg(feature = "extreme_assertions")]
         crate::util::edge_logger::reset();
 
+        let factory = ProcessEdgesWorkRootsWorkFactory::<ForwardingProcessEdges<VM>>::new(mmtk);
+
         // TODO investigate why the following will create duplicate edges
         // scheduler.work_buckets[WorkBucketStage::RefForwarding]
         //     .add(ScanStackRoots::<ForwardingProcessEdges<VM>>::new());
         for mutator in VM::VMActivePlan::mutators() {
             mmtk.scheduler.work_buckets[WorkBucketStage::SecondRoots]
-                .add(ScanStackRoot::<ForwardingProcessEdges<VM>>(mutator));
+                .add(ScanStackRoot::<VM>::new(mutator, factory.fork()));
         }
 
         mmtk.scheduler.work_buckets[WorkBucketStage::SecondRoots]
-            .add(ScanVMSpecificRoots::<ForwardingProcessEdges<VM>>::new());
+            .add(ScanVMSpecificRoots::new(factory));
     }
 }
 

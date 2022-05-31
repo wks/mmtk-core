@@ -142,7 +142,7 @@ pub trait Plan: 'static + Sync + Downcast {
     }
 
     fn base(&self) -> &BasePlan<Self::VM>;
-    fn schedule_collection(&'static self, _scheduler: &GCWorkScheduler<Self::VM>);
+    fn schedule_collection(&'static self, _scheduler: &GCWorkScheduler<Self::VM>, mmtk: &'static MMTK<Self::VM>);
     fn common(&self) -> &CommonPlan<Self::VM> {
         panic!("Common Plan not handled!")
     }

@@ -113,7 +113,7 @@ impl<VM: VMBinding> Plan for GenImmix<VM> {
     // in different if branches.
     #[allow(clippy::if_same_then_else)]
     #[allow(clippy::branches_sharing_code)]
-    fn schedule_collection(&'static self, scheduler: &GCWorkScheduler<Self::VM>) {
+    fn schedule_collection(&'static self, scheduler: &GCWorkScheduler<Self::VM>, mmtk: &'static crate::MMTK<Self::VM>) {
         let is_full_heap = self.request_full_heap_collection();
 
         self.base().set_collection_kind::<Self>(self);
@@ -132,15 +132,15 @@ impl<VM: VMBinding> Plan for GenImmix<VM> {
 
         if !is_full_heap {
             debug!("Nursery GC");
-            scheduler.schedule_common_work::<GenImmixNurseryGCWorkContext<VM>>(self);
+            scheduler.schedule_common_work::<GenImmixNurseryGCWorkContext<VM>>(self, mmtk);
         } else if defrag {
             debug!("Full heap GC Defrag");
             scheduler
-                .schedule_common_work::<GenImmixMatureGCWorkContext<VM, TRACE_KIND_DEFRAG>>(self);
+                .schedule_common_work::<GenImmixMatureGCWorkContext<VM, TRACE_KIND_DEFRAG>>(self, mmtk);
         } else {
             debug!("Full heap GC Fast");
             scheduler
-                .schedule_common_work::<GenImmixMatureGCWorkContext<VM, TRACE_KIND_FAST>>(self);
+                .schedule_common_work::<GenImmixMatureGCWorkContext<VM, TRACE_KIND_FAST>>(self, mmtk);
         }
     }
 
