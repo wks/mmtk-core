@@ -1,7 +1,7 @@
 use crate::plan::Plan;
 use crate::scheduler::gc_work::*;
 use crate::scheduler::*;
-use crate::util::{Address, ObjectReference};
+use crate::util::ObjectReference;
 use crate::vm::edge_shape::Edge;
 use crate::vm::*;
 use crate::MMTK;

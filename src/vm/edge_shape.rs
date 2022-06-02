@@ -1,3 +1,6 @@
+use std::fmt::Debug;
+use std::hash::Hash;
+
 use atomic::Atomic;
 
 use crate::util::{Address, ObjectReference};
@@ -21,7 +24,7 @@ use crate::util::{Address, ObjectReference};
 /// Note: this trait only concerns the representation (i.e. the shape) of the edge, not its
 /// semantics, such as whether it holds strong or weak references.  If a VM holds a weak reference
 /// in a word as a pointer, it can also use `SimpleEdge` for weak reference fields.
-pub trait Edge: Copy + Send {
+pub trait Edge: Copy + Send + Debug + PartialEq + Eq + Hash {
     /// Load object reference from the edge.
     fn load(&self) -> ObjectReference;
 
@@ -41,7 +44,7 @@ pub trait Edge: Copy + Send {
 
 /// A simple edge implementation that represents a word-sized slot where an ObjectReference value
 /// is stored as is.  It is the default edge type, and should be suitable for most VMs.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SimpleEdge {
     slot_addr: *mut Atomic<ObjectReference>,
 }

@@ -5,7 +5,7 @@ use mmtk::{
 };
 
 /// If a VM supports multiple kinds of edges, we can use tagged union to represent all of them.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum DummyVMEdge {
     Simple(SimpleEdge),
     Compressed(CompressedOopEdge),
@@ -38,7 +38,7 @@ impl Edge for DummyVMEdge {
 /// This represents a location that holds a 32-bit pointer on a 64-bit machine.
 ///
 /// OpenJDK uses this kind of edge to store compressed OOPs on 64-bit machines.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct CompressedOopEdge {
     slot_addr: *mut Atomic<u32>,
 }
@@ -73,7 +73,7 @@ impl Edge for CompressedOopEdge {
 /// This represents an edge that holds a pointer to the *middle* of an object, and the offset is known.
 ///
 /// Julia uses this trick to facilitate deleting array elements from the front.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct OffsetEdge {
     slot_addr: *mut Atomic<Address>,
     offset: usize,
@@ -120,7 +120,7 @@ impl Edge for OffsetEdge {
 }
 
 /// This edge presents the object reference itself to mmtk-core.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct ValueEdge {
     value: ObjectReference,
 }

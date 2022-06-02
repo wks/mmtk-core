@@ -224,7 +224,7 @@ impl<VM: VMBinding> GCWork<VM> for EndOfGC {
         #[cfg(feature = "extreme_assertions")]
         if crate::util::edge_logger::should_check_duplicate_edges(&*mmtk.plan) {
             // reset the logging info at the end of each GC
-            crate::util::edge_logger::reset();
+            mmtk.edge_logger.reset();
         }
 
         if <VM as VMBinding>::VMCollection::COORDINATOR_ONLY_STW {
@@ -343,7 +343,7 @@ impl<VM: VMBinding> ProcessEdgesBase<VM> {
         if crate::util::edge_logger::should_check_duplicate_edges(&*mmtk.plan) {
             for edge in &edges {
                 // log edge, panic if already logged
-                crate::util::edge_logger::log_edge(*edge);
+                mmtk.edge_logger.log_edge(*edge);
             }
         }
         Self {

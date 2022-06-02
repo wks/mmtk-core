@@ -3,6 +3,7 @@ use crate::plan::Plan;
 use crate::policy::space::SFTMap;
 use crate::scheduler::GCWorkScheduler;
 
+use crate::util::edge_logger::EdgeLogger;
 use crate::util::finalizable_processor::FinalizableProcessor;
 use crate::util::heap::layout::heap_layout::Mmapper;
 use crate::util::heap::layout::heap_layout::VMMap;
@@ -49,6 +50,8 @@ pub struct MMTK<VM: VMBinding> {
     pub(crate) scheduler: Arc<GCWorkScheduler<VM>>,
     #[cfg(feature = "sanity")]
     pub(crate) sanity_checker: Mutex<SanityChecker<VM::VMEdge>>,
+    #[cfg(feature = "extreme_assertions")]
+    pub(crate) edge_logger: EdgeLogger<VM::VMEdge>,
     inside_harness: AtomicBool,
 }
 
@@ -83,6 +86,8 @@ impl<VM: VMBinding> MMTK<VM> {
             #[cfg(feature = "sanity")]
             sanity_checker: Mutex::new(SanityChecker::new()),
             inside_harness: AtomicBool::new(false),
+            #[cfg(feature = "extreme_assertions")]
+            edge_logger: EdgeLogger::new(),
         }
     }
 
