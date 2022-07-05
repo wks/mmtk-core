@@ -3,11 +3,31 @@ use crate::util::VMWorkerThread;
 use crate::util::{Address, ObjectReference};
 use crate::vm::VMBinding;
 
-// Callback trait of scanning functions that report edges.
+/// Callback trait of scanning functions that report edges.
 pub trait EdgeVisitor {
     /// Call this function for each edge.
     fn visit_edge(&mut self, edge: Address);
-    // TODO: Add visit_soft_edge, visit_weak_edge, ... here.
+}
+
+/// This lets us use closures as EdgeVisitor.
+impl<F: FnMut(Address)> EdgeVisitor for F {
+    fn visit_edge(&mut self, edge: Address) {
+        self(edge)
+    }
+}
+
+/// Callback trait of scanning functions that directly trace through edges.
+pub trait ObjectTracer {
+    /// Call this function for the content of each edge,
+    /// and assign the returned value back to the edge.
+    fn trace_object(&mut self, object: ObjectReference) -> ObjectReference;
+}
+
+/// This lets us use closures as ObjectTracer.
+impl<F: FnMut(ObjectReference) -> ObjectReference> ObjectTracer for F {
+    fn trace_object(&mut self, object: ObjectReference) -> ObjectReference {
+        self(object)
+    }
 }
 
 /// Root-scanning methods use this trait to create work packets for processing roots.
@@ -60,8 +80,23 @@ pub trait Scanning<VM: VMBinding> {
     /// `SCAN_MUTATORS_IN_SAFEPOINT` should also be enabled
     const SINGLE_THREAD_MUTATOR_SCANNING: bool = true;
 
-    /// Delegated scanning of a object, visiting each pointer field
-    /// encountered.
+    /// Return true if the given object supports edge enqueuing.
+    ///
+    /// -   If this returns true, MMTk core will call `scan_object` on the object.
+    /// -   Otherwise, MMTk core will call `scan_object_and_trace_edges` on the object.
+    ///
+    /// For maximum performance, the VM should support edge-enqueuing for as many objects as
+    /// practical.
+    ///
+    /// * `tls`: The VM-specific thread-local storage for the current worker.
+    /// * `object`: The object to be scanned.
+    fn support_edge_enqueuing(_tls: VMWorkerThread, _object: ObjectReference) -> bool {
+        true
+    }
+
+    /// Delegated scanning of a object, visiting each pointer field encountered.
+    ///
+    /// The VM shall call `edge_visitor.visit_edge` on each pointer field.
     ///
     /// Arguments:
     /// * `tls`: The VM-specific thread-local storage for the current worker.
@@ -72,6 +107,25 @@ pub trait Scanning<VM: VMBinding> {
         object: ObjectReference,
         edge_visitor: &mut EV,
     );
+
+    /// Delegated scanning of a object, visiting each pointer field encountered, and trace the
+    /// objects pointed by each field.
+    ///
+    /// The VM shall call `object_tracer.trace_object` on each pointer field, and assign the
+    /// returned value back to the edge.  The VM may skip a pointer field if it holds a null
+    /// pointer.
+    ///
+    /// Arguments:
+    /// * `tls`: The VM-specific thread-local storage for the current worker.
+    /// * `object`: The object to be scanned.
+    /// * `object_tracer`: Called back for the content of each edge.
+    fn scan_object_and_trace_edges<OT: ObjectTracer>(
+        _tls: VMWorkerThread,
+        _object: ObjectReference,
+        _object_tracer: &mut OT,
+    ) {
+        unimplemented!();
+    }
 
     /// MMTk calls this method at the first time during a collection that thread's stacks
     /// have been scanned. This can be used (for example) to clean up
