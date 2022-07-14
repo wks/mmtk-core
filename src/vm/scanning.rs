@@ -90,6 +90,7 @@ pub trait Scanning<VM: VMBinding> {
     ///
     /// * `tls`: The VM-specific thread-local storage for the current worker.
     /// * `object`: The object to be scanned.
+    #[inline(always)]
     fn support_edge_enqueuing(_tls: VMWorkerThread, _object: ObjectReference) -> bool {
         true
     }

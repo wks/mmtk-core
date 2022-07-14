@@ -42,8 +42,8 @@ impl<VM: VMBinding> ProcessEdgesWork for GenNurseryProcessEdges<VM> {
     }
 
     #[inline(always)]
-    fn create_scan_work(&self, nodes: Vec<ObjectReference>) -> ScanObjects<Self> {
-        ScanObjects::<Self>::new(nodes, false)
+    fn create_scan_work(&self, nodes: Vec<ObjectReference>, roots: bool) -> ScanObjects<Self> {
+        ScanObjects::<Self>::new(nodes, false, roots)
     }
 }
 
