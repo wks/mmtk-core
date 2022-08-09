@@ -51,6 +51,17 @@ pub trait ReferenceGlue<VM: VMBinding> {
     /// the references slice will be cleared after this call is returned. That means
     /// MMTk will no longer keep these references alive once this method is returned.
     fn enqueue_references(references: &[ObjectReference], tls: VMWorkerThread);
+
+    /// Give the VM a chance to do finalization immediately, even before GC finishes.
+    ///
+    /// Arguments:
+    /// * `tls`: The thread pointer for the current GC thread.
+    fn do_finalization<F>(_tls: VMWorkerThread, _get_ready_object: F)
+    where
+        F: FnMut() -> Option<Self::FinalizableType>,
+    {
+        // Do nothing.
+    }
 }
 
 use crate::scheduler::gc_work::ProcessEdgesWork;

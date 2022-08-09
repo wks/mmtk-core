@@ -699,7 +699,10 @@ impl<VM: VMBinding> BasePlan<VM> {
             .store(emergency_collection, Ordering::Relaxed);
 
         if emergency_collection {
+            info!("Emergency collection!");
             plan.force_full_heap_collection();
+        } else {
+            info!("Not emergency.");
         }
     }
 

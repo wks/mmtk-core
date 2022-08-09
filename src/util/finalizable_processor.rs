@@ -3,7 +3,7 @@ use crate::scheduler::{GCWork, GCWorker};
 use crate::util::ObjectReference;
 use crate::util::VMWorkerThread;
 use crate::vm::Finalizable;
-use crate::vm::{Collection, VMBinding};
+use crate::vm::{Collection, ReferenceGlue, VMBinding};
 use crate::MMTK;
 use std::marker::PhantomData;
 
@@ -141,6 +141,10 @@ impl<E: ProcessEdgesWork> GCWork<E::VM> for Finalization<E> {
         let mut w = E::new(vec![], false, mmtk);
         w.set_worker(worker);
         finalizable_processor.scan(worker.tls, &mut w, mmtk.plan.is_current_gc_nursery());
+        <<E as ProcessEdgesWork>::VM as VMBinding>::VMReferenceGlue::do_finalization(
+            worker.tls,
+            || { finalizable_processor.get_ready_object() },
+        );
         debug!(
             "Finished finalization, {} objects in candidates, {} objects ready to finalize",
             finalizable_processor.candidates.len(),
