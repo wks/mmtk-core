@@ -90,10 +90,10 @@ lazy_static! {
     /// is not built from a git repo.
     pub static ref MMTK_GIT_VERSION: &'static str = &MMTK_GIT_VERSION_STRING;
     // Owned string
-    static ref MMTK_GIT_VERSION_STRING: String = if raw::GIT_COMMIT_HASH.is_some() {
-        format!("{}{}", raw::GIT_COMMIT_HASH.unwrap(), if raw::GIT_DIRTY.unwrap() { "-dirty" } else { "" })
-    } else {
-        "unknown-git-version".to_string()
+    static ref MMTK_GIT_VERSION_STRING: String = match (raw::GIT_COMMIT_HASH, raw::GIT_DIRTY) {
+        (Some(hash), Some(dirty)) => format!("{}{}", hash, if dirty { "-dirty" } else { "" }),
+        (None, None) => "unknown-git-version".to_string(),
+        x => unreachable!("{:?}", x),
     };
 
     /// Full build info, including MMTk's name, version, git, and features in the build,
