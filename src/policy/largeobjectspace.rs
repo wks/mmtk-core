@@ -145,6 +145,7 @@ impl<VM: VMBinding> LargeObjectSpace<VM> {
         constraints: &'static PlanConstraints,
         protect_memory_on_release: bool,
     ) -> Self {
+        eprintln!("Before creating common space...");
         let common = CommonSpace::new(
             SpaceOptions {
                 name,
@@ -164,12 +165,25 @@ impl<VM: VMBinding> LargeObjectSpace<VM> {
             mmapper,
             heap,
         );
+        eprintln!("After creating common space...");
+        eprintln!("{}", 1);
+        eprintln!("{}", 2);
+        eprintln!("{}", 3);
+
         let mut pr = if vmrequest.is_discontiguous() {
-            FreeListPageResource::new_discontiguous(vm_map)
+            eprintln!("{}", 4);
+            let o = FreeListPageResource::new_discontiguous(vm_map);
+            eprintln!("{}", 5);
+            o
         } else {
-            FreeListPageResource::new_contiguous(common.start, common.extent, vm_map)
+            eprintln!("{}", 6);
+            let o = FreeListPageResource::new_contiguous(common.start, common.extent, vm_map);
+            eprintln!("{}", 7);
+            o
         };
+        eprintln!("{}", 8);
         pr.protect_memory_on_release = protect_memory_on_release;
+        eprintln!("{}", 9);
         LargeObjectSpace {
             pr,
             common,

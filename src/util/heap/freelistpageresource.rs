@@ -151,23 +151,32 @@ impl<VM: VMBinding> PageResource<VM> for FreeListPageResource<VM> {
 
 impl<VM: VMBinding> FreeListPageResource<VM> {
     pub fn new_contiguous(start: Address, bytes: usize, vm_map: &'static VMMap) -> Self {
+        eprintln!("new_contiguous {}", 1);
         let pages = conversions::bytes_to_pages(bytes);
+        eprintln!("new_contiguous {}", 2);
         // We use MaybeUninit::uninit().assume_init(), which is nul, for a Box value, which cannot be null.
         // FIXME: We should try either remove this kind of circular dependency or use MaybeUninit<T> instead of Box<T>
         #[allow(invalid_value)]
         #[allow(clippy::uninit_assumed_init)]
         let common_flpr = unsafe {
+            eprintln!("new_contiguous {} {}", 2, 1);
+            let free_list = MaybeUninit::uninit().assume_init();
+            eprintln!("new_contiguous {} {} {}", 2, 1, 1);
             let mut common_flpr = Box::new(CommonFreeListPageResource {
-                free_list: MaybeUninit::uninit().assume_init(),
+                free_list,
                 start,
             });
+            eprintln!("new_contiguous {} {}", 2, 2);
             ::std::ptr::write(
                 &mut common_flpr.free_list,
                 vm_map.create_parent_freelist(&common_flpr, pages, PAGES_IN_REGION as _),
             );
+            eprintln!("new_contiguous {} {}", 2, 3);
             common_flpr
         };
+        eprintln!("new_contiguous {}", 3);
         let growable = cfg!(target_pointer_width = "64");
+        eprintln!("new_contiguous {}", 4);
         FreeListPageResource {
             common: CommonPageResource::new(true, growable, vm_map),
             common_flpr,
