@@ -15,6 +15,13 @@ pub struct ScheduleCollection;
 impl<VM: VMBinding> GCWork<VM> for ScheduleCollection {
     fn do_work(&mut self, worker: &mut GCWorker<VM>, mmtk: &'static MMTK<VM>) {
         mmtk.plan.schedule_collection(worker.scheduler());
+
+        assert!(worker.scheduler().work_buckets[WorkBucketStage::SoftRefClosure].is_empty());
+        assert!(worker.scheduler().work_buckets[WorkBucketStage::WeakRefClosure].is_empty());
+        assert!(worker.scheduler().work_buckets[WorkBucketStage::FinalRefClosure].is_empty());
+        assert!(worker.scheduler().work_buckets[WorkBucketStage::PhantomRefClosure].is_empty());
+        assert!(worker.scheduler().work_buckets[WorkBucketStage::RefForwarding].is_empty());
+        assert!(worker.scheduler().work_buckets[WorkBucketStage::FinalizableForwarding].is_empty());
     }
 }
 

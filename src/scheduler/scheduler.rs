@@ -171,41 +171,6 @@ impl<VM: VMBinding> GCWorkScheduler<VM> {
                 .add(ScheduleSanityGC::<C::PlanType>::new(plan));
         }
 
-        // Reference processing
-        if !*plan.base().options.no_reference_types {
-            use crate::util::reference_processor::{
-                PhantomRefProcessing, SoftRefProcessing, WeakRefProcessing,
-            };
-            self.work_buckets[WorkBucketStage::SoftRefClosure]
-                .add(SoftRefProcessing::<C::ProcessEdgesWorkType>::new());
-            self.work_buckets[WorkBucketStage::WeakRefClosure]
-                .add(WeakRefProcessing::<C::ProcessEdgesWorkType>::new());
-            self.work_buckets[WorkBucketStage::PhantomRefClosure]
-                .add(PhantomRefProcessing::<C::ProcessEdgesWorkType>::new());
-
-            use crate::util::reference_processor::RefForwarding;
-            if plan.constraints().needs_forward_after_liveness {
-                self.work_buckets[WorkBucketStage::RefForwarding]
-                    .add(RefForwarding::<C::ProcessEdgesWorkType>::new());
-            }
-
-            use crate::util::reference_processor::RefEnqueue;
-            self.work_buckets[WorkBucketStage::Release].add(RefEnqueue::<VM>::new());
-        }
-
-        // Finalization
-        if !*plan.base().options.no_finalizer {
-            use crate::util::finalizable_processor::{Finalization, ForwardFinalization};
-            // finalization
-            self.work_buckets[WorkBucketStage::FinalRefClosure]
-                .add(Finalization::<C::ProcessEdgesWorkType>::new());
-            // forward refs
-            if plan.constraints().needs_forward_after_liveness {
-                self.work_buckets[WorkBucketStage::FinalizableForwarding]
-                    .add(ForwardFinalization::<C::ProcessEdgesWorkType>::new());
-            }
-        }
-
         // We add the VM-specific weak ref processing work regardless of MMTK-side options,
         // including Options::no_finalizer and Options::no_reference_types.
         //
