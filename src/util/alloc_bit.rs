@@ -18,17 +18,20 @@ pub fn set_alloc_bit<VM: VMBinding>(object: ObjectReference) {
         "{:x}: alloc bit already set",
         object
     );
+    trace!("Setting alloc bit: {}", object);
     ALLOC_SIDE_METADATA_SPEC.store_atomic::<u8>(object.to_address::<VM>(), 1, Ordering::SeqCst);
 }
 
 /// Atomically unset the alloc bit for an object.
 pub fn unset_alloc_bit<VM: VMBinding>(object: ObjectReference) {
     debug_assert!(is_alloced::<VM>(object), "{:x}: alloc bit not set", object);
+    trace!("Unsetting alloc bit: {}", object);
     ALLOC_SIDE_METADATA_SPEC.store_atomic::<u8>(object.to_address::<VM>(), 0, Ordering::SeqCst);
 }
 
 /// Atomically unset the alloc bit for an object, regardless whether the bit is set or not.
 pub fn unset_alloc_bit_nocheck<VM: VMBinding>(object: ObjectReference) {
+    trace!("Unsetting alloc bit no check: {}", object);
     ALLOC_SIDE_METADATA_SPEC.store_atomic::<u8>(object.to_address::<VM>(), 0, Ordering::SeqCst);
 }
 
@@ -40,6 +43,7 @@ pub fn unset_alloc_bit_nocheck<VM: VMBinding>(object: ObjectReference) {
 /// This is unsafe: check the comment on `side_metadata::store`
 pub unsafe fn unset_alloc_bit_unsafe<VM: VMBinding>(object: ObjectReference) {
     debug_assert!(is_alloced::<VM>(object), "{:x}: alloc bit not set", object);
+    trace!("Unsetting alloc bit unsafe: {}", object);
     ALLOC_SIDE_METADATA_SPEC.store::<u8>(object.to_address::<VM>(), 0);
 }
 
@@ -93,5 +97,6 @@ pub unsafe fn is_alloced_object_unsafe<VM: VMBinding>(address: Address) -> Optio
 
 /// Bulk zero the alloc bit.
 pub fn bzero_alloc_bit(start: Address, size: usize) {
+    trace!("Bulk zeroing alloc bit: {}-{}, {} bytes", start, start.add(size), size);
     ALLOC_SIDE_METADATA_SPEC.bzero_metadata(start, size);
 }

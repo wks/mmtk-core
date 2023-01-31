@@ -65,6 +65,7 @@ impl<VM: VMBinding> GCWorkScheduler<VM> {
             WorkBucketStage::FinalizableForwarding => WorkBucket::new(false, worker_monitor.clone(), worker_group.clone()),
             WorkBucketStage::VMRefForwarding => WorkBucket::new(false, worker_monitor.clone(), worker_group.clone()),
             WorkBucketStage::Compact => WorkBucket::new(false, worker_monitor.clone(), worker_group.clone()),
+            WorkBucketStage::BeforeRelease => WorkBucket::new(false, worker_monitor.clone(), worker_group.clone()),
             WorkBucketStage::Release => WorkBucket::new(false, worker_monitor.clone(), worker_group.clone()),
             WorkBucketStage::Final => WorkBucket::new(false, worker_monitor.clone(), worker_group.clone()),
         };

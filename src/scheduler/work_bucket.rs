@@ -296,6 +296,9 @@ pub enum WorkBucketStage {
     VMRefForwarding,
     /// Compact objects (mark-compact-only).
     Compact,
+    /// Executed when the life and death of all objects have been determined and all objects
+    /// have been moved to their desired destinations, but before the Plan is released.
+    BeforeRelease,
     /// Work packets that should be done just before GC shall go here.  This includes releasing
     /// resources and setting states in plans, spaces, GC workers, mutators, etc.
     Release,

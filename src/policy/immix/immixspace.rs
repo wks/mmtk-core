@@ -175,7 +175,8 @@ impl<VM: VMBinding> ImmixSpace<VM> {
                 *VM::VMObjectModel::LOCAL_MARK_BIT_SPEC,
                 #[cfg(feature = "object_pinning")]
                 *VM::VMObjectModel::LOCAL_PINNING_BIT_SPEC,
-            ]
+                *VM::VMObjectModel::LOCAL_FORWARDING_BITS_SPEC,
+                ]
         } else {
             vec![
                 MetadataSpec::OnSide(Line::MARK_TABLE),
@@ -185,7 +186,8 @@ impl<VM: VMBinding> ImmixSpace<VM> {
                 *VM::VMObjectModel::LOCAL_MARK_BIT_SPEC,
                 #[cfg(feature = "object_pinning")]
                 *VM::VMObjectModel::LOCAL_PINNING_BIT_SPEC,
-            ]
+                *VM::VMObjectModel::LOCAL_FORWARDING_BITS_SPEC,
+                ]
         })
     }
 
@@ -519,7 +521,8 @@ impl<VM: VMBinding> ImmixSpace<VM> {
                 BlockState::Marked
             );
             queue.enqueue(new_object);
-            debug_assert!(new_object.is_live());
+            debug_assert!(new_object.is_live(), "{} is not live", new_object);
+            trace!("ImmixSpace forwarded an object! {} -> {}", object, new_object);
             new_object
         }
     }
