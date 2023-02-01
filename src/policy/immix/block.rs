@@ -216,6 +216,8 @@ impl Block {
                 BlockState::Unallocated => false,
                 BlockState::Unmarked => {
                     // Release the block if it is allocated but not marked by the current GC.
+                    #[cfg(feature = "global_alloc_bit")]
+                    crate::util::alloc_bit::bzero_alloc_bit(self.start(), Self::BYTES);
                     space.release_block(*self);
                     true
                 }
@@ -237,6 +239,9 @@ impl Block {
                     marked_lines += 1;
                     prev_line_is_marked = true;
                 } else {
+                    // #[cfg(feature = "global_alloc_bit")]
+                    // crate::util::alloc_bit::bzero_alloc_bit(line.start(), Line::BYTES);
+
                     if prev_line_is_marked {
                         holes += 1;
                     }

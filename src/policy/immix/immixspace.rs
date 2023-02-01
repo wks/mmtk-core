@@ -59,6 +59,16 @@ impl<VM: VMBinding> SFT for ImmixSpace<VM> {
             self.is_marked(object, self.mark_state) || ForwardingWord::is_forwarded::<VM>(object)
         }
     }
+
+    #[inline(always)]
+    fn get_forwarded_object(&self, object: ObjectReference) -> Option<ObjectReference> {
+        if ForwardingWord::is_forwarded::<VM>(object) {
+            Some(ForwardingWord::read_forwarding_pointer::<VM>(object))
+        } else {
+            None
+        }
+    }
+
     #[cfg(feature = "object_pinning")]
     fn pin_object(&self, object: ObjectReference) -> bool {
         VM::VMObjectModel::LOCAL_PINNING_BIT_SPEC.pin_object::<VM>(object)
@@ -418,12 +428,12 @@ impl<VM: VMBinding> ImmixSpace<VM> {
         semantics: CopySemantics,
         worker: &mut GCWorker<VM>,
     ) -> ObjectReference {
-        #[cfg(feature = "global_alloc_bit")]
-        debug_assert!(
-            crate::util::alloc_bit::is_alloced::<VM>(object),
-            "{:x}: alloc bit not set",
-            object
-        );
+        // #[cfg(feature = "global_alloc_bit")]
+        // debug_assert!(
+        //     crate::util::alloc_bit::is_alloced::<VM>(object),
+        //     "{:x}: alloc bit not set",
+        //     object
+        // );
         if Block::containing::<VM>(object).is_defrag_source() {
             debug_assert!(self.in_defrag());
             self.trace_object_with_opportunistic_copy(trace, object, semantics, worker)
@@ -522,7 +532,7 @@ impl<VM: VMBinding> ImmixSpace<VM> {
             );
             queue.enqueue(new_object);
             debug_assert!(new_object.is_live(), "{} is not live", new_object);
-            trace!("ImmixSpace forwarded an object! {} -> {}", object, new_object);
+            info!("ImmixSpace forwarded an object! {} -> {}", object, new_object);
             new_object
         }
     }

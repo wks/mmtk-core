@@ -566,6 +566,10 @@ impl ObjectReference {
         }
     }
 
+    pub fn is_forwarded<VM: VMBinding>(self) -> bool {
+        crate::util::object_forwarding::is_forwarded::<VM>(self)
+    }
+
     pub fn is_movable(self) -> bool {
         unsafe { SFT_MAP.get_unchecked(Address(self.0)) }.is_movable()
     }
