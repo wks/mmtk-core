@@ -532,7 +532,7 @@ impl<VM: VMBinding> ImmixSpace<VM> {
             );
             queue.enqueue(new_object);
             debug_assert!(new_object.is_live(), "{} is not live", new_object);
-            info!("ImmixSpace forwarded an object! {} -> {}", object, new_object);
+            trace!("ImmixSpace forwarded an object! {} -> {}", object, new_object);
             new_object
         }
     }

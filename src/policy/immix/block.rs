@@ -140,7 +140,8 @@ impl Block {
     #[inline(always)]
     pub fn is_defrag_source(&self) -> bool {
         let byte = Self::DEFRAG_STATE_TABLE.load_atomic::<u8>(self.start(), Ordering::SeqCst);
-        debug_assert!(byte == 0 || byte == Self::DEFRAG_SOURCE_STATE);
+        debug_assert!(byte == 0 || byte == Self::DEFRAG_SOURCE_STATE,
+            "Unexpected byte: {}", byte);
         byte == Self::DEFRAG_SOURCE_STATE
     }
 
