@@ -74,7 +74,7 @@ impl<VM: VMBinding> GCController<VM> {
                 // For concurrent GCs, the coordinator thread may receive this message when
                 // some buckets are still not empty. Under such case, the coordinator
                 // should ignore the message.
-                let _guard = self.scheduler.worker_monitor.0.lock().unwrap();
+                let _guard = self.scheduler.worker_monitor.lock();
                 self.scheduler.worker_group.all_parked() && self.scheduler.all_buckets_empty()
             }
         }
@@ -116,8 +116,8 @@ impl<VM: VMBinding> GCController<VM> {
             // Note: GC workers may spuriously wake up, examining the states of work buckets and
             // trying to open them.  Use lock to ensure workers do not wake up when we deactivate
             // buckets.
-            let _guard = self.scheduler.worker_monitor.0.lock().unwrap();
-            self.scheduler.deactivate_all();
+            let mut guard = self.scheduler.worker_monitor.lock();
+            self.scheduler.deactivate_all(&mut guard);
         }
 
         // Tell GC trigger that GC ended - this happens before EndOfGC where we resume mutators.
@@ -177,8 +177,8 @@ impl<VM: VMBinding> GCController<VM> {
             // When a coordinator work finishes, there is a chance that all GC workers parked, and
             // no work packets are added to any open buckets.  We need to wake up one GC worker so
             // that it can open more work buckets.
-            let _guard = self.scheduler.worker_monitor.0.lock().unwrap();
-            self.scheduler.worker_monitor.1.notify_one();
+            let mut guard = self.scheduler.worker_monitor.lock();
+            guard.notify_one();
         };
     }
 }

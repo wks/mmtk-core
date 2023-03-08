@@ -13,7 +13,8 @@ use enum_map::{enum_map, EnumMap};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::channel;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, WaitTimeoutResult};
+use std::time::Duration;
 
 pub enum CoordinatorMessage<VM: VMBinding> {
     /// Send a work-packet to the coordinator thread/
@@ -31,12 +32,61 @@ pub struct GCWorkScheduler<VM: VMBinding> {
     pub worker_group: Arc<WorkerGroup<VM>>,
     /// The shared part of the GC worker object of the controller thread
     coordinator_worker_shared: Arc<GCWorkerShared<VM>>,
-    /// Condition Variable for worker synchronization
-    pub worker_monitor: Arc<(Mutex<()>, Condvar)>,
+    /// Synchronization object for coordinator and workers
+    pub worker_monitor: Arc<WorkerMonitor>,
     /// Counter for pending coordinator messages.
     pub(super) pending_coordinator_packets: AtomicUsize,
     /// How to assign the affinity of each GC thread. Specified by the user.
     affinity: AffinityKind,
+}
+
+/// A shared structure to synchronize between the coordinator and GC workers for some actions.
+#[derive(Default)]
+pub struct WorkerMonitor {
+    mutex: Mutex<()>,
+    cond: Condvar,
+}
+
+impl WorkerMonitor {
+    pub fn lock<'m>(&'m self) -> WorkerMonitorGuard<'m> {
+        let lock_guard = self.mutex.lock().unwrap();
+        WorkerMonitorGuard {
+            lock_guard,
+            cond: &self.cond,
+        }
+    }
+}
+
+/// Helper object to auto-release the monitor lock and do wait/notify operations.
+///
+/// Functions that require the worker monitor lock take a `&mut WorkerMonitorGuard` parameter to
+/// enforce proper locking.  Specifically, the following operations require the worker monitor
+/// lock.
+///
+/// -   opening/closing work buckets
+pub struct WorkerMonitorGuard<'m> {
+    lock_guard: MutexGuard<'m, ()>,
+    cond: &'m Condvar,
+}
+
+impl<'m> WorkerMonitorGuard<'m> {
+    pub fn wait(&mut self) {
+        self.lock_guard = self.cond.wait(std::mem::take(&mut self.lock_guard)).unwrap();
+    }
+
+    pub fn wait_timeout(&mut self, dur: Duration) -> WaitTimeoutResult {
+        let (new_guard, timeout_result) = self.cond.wait_timeout(self.lock_guard, dur).unwrap();
+        self.lock_guard = new_guard;
+        timeout_result
+    }
+
+    pub fn notify_all(&mut self) {
+        self.cond.notify_all();
+    }
+
+    pub fn notify_one(&mut self) {
+        self.cond.notify_all();
+    }
 }
 
 // FIXME: GCWorkScheduler should be naturally Sync, but we cannot remove this `impl` yet.
@@ -46,7 +96,7 @@ unsafe impl<VM: VMBinding> Sync for GCWorkScheduler<VM> {}
 
 impl<VM: VMBinding> GCWorkScheduler<VM> {
     pub fn new(num_workers: usize, affinity: AffinityKind) -> Arc<Self> {
-        let worker_monitor: Arc<(Mutex<()>, Condvar)> = Default::default();
+        let worker_monitor: Arc<WorkerMonitor> = Default::default();
         let worker_group = WorkerGroup::new(num_workers);
 
         // Create work buckets for workers.
@@ -251,7 +301,7 @@ impl<VM: VMBinding> GCWorkScheduler<VM> {
     }
 
     /// Schedule "sentinel" work packets for all activated buckets.
-    fn schedule_sentinels(&self) -> bool {
+    fn schedule_sentinels(&self, _guard: &mut WorkerMonitorGuard) -> bool {
         let mut new_packets = false;
         for (id, work_bucket) in self.work_buckets.iter() {
             if work_bucket.is_activated() && work_bucket.maybe_schedule_sentinel() {
@@ -268,7 +318,7 @@ impl<VM: VMBinding> GCWorkScheduler<VM> {
     /// No workers will be waked up by this function. The caller is responsible for that.
     ///
     /// Return true if there're any non-empty buckets updated.
-    fn update_buckets(&self) -> bool {
+    fn update_buckets(&self, _guard: &mut WorkerMonitorGuard) -> bool {
         let mut buckets_updated = false;
         let mut new_packets = false;
         for i in 0..WorkBucketStage::LENGTH {
@@ -297,7 +347,7 @@ impl<VM: VMBinding> GCWorkScheduler<VM> {
         buckets_updated && new_packets
     }
 
-    pub fn deactivate_all(&self) {
+    pub fn deactivate_all(&self, _guard: &mut WorkerMonitorGuard) {
         self.work_buckets.iter().for_each(|(id, bkt)| {
             if id != WorkBucketStage::Unconstrained {
                 bkt.deactivate();
@@ -305,7 +355,7 @@ impl<VM: VMBinding> GCWorkScheduler<VM> {
         });
     }
 
-    pub fn reset_state(&self) {
+    pub fn reset_state(&self, _guard: WorkerMonitorGuard) {
         let first_stw_stage = WorkBucketStage::first_stw_stage();
         self.work_buckets.iter().for_each(|(id, bkt)| {
             if id != WorkBucketStage::Unconstrained && id != first_stw_stage {
@@ -404,7 +454,7 @@ impl<VM: VMBinding> GCWorkScheduler<VM> {
 
     fn poll_slow(&self, worker: &GCWorker<VM>) -> Box<dyn GCWork<VM>> {
         // Note: The lock is released during `wait` in the loop.
-        let mut guard = self.worker_monitor.0.lock().unwrap();
+        let mut guard = self.worker_monitor.lock();
         'polling_loop: loop {
             // Retry polling
             if let Some(work) = self.poll_schedulable_work(worker) {
@@ -420,16 +470,16 @@ impl<VM: VMBinding> GCWorkScheduler<VM> {
                         worker.shared.designated_work.is_empty(),
                         "The last parked worker has designated work."
                     );
-                    self.worker_monitor.1.notify_all();
+                    guard.notify_all();
                     // The current worker is going to wait, because the designated work is not for it.
                 } else if self.pending_coordinator_packets.load(Ordering::SeqCst) == 0 {
                     // See if any bucket has a sentinel.
-                    if self.schedule_sentinels() {
+                    if self.schedule_sentinels(&mut guard) {
                         // We're not going to sleep since new work packets are just scheduled.
                         break 'polling_loop;
                     }
                     // Try to open new buckets.
-                    if self.update_buckets() {
+                    if self.update_buckets(&mut guard) {
                         // We're not going to sleep since a new bucket is just open.
                         break 'polling_loop;
                     }
@@ -443,7 +493,7 @@ impl<VM: VMBinding> GCWorkScheduler<VM> {
                 // coordinator work packets.
             }
             // Wait
-            guard = self.worker_monitor.1.wait(guard).unwrap();
+            guard.wait();
             // The worker is unparked here where `parking_guard` goes out of scope.
         }
 
@@ -453,7 +503,7 @@ impl<VM: VMBinding> GCWorkScheduler<VM> {
         // We only notify_all if there're more than one packets available.
         if !self.all_activated_buckets_are_empty() {
             // Have more jobs in this buckets. Notify other workers.
-            self.worker_monitor.1.notify_all();
+            guard.notify_all();
         }
         // Return this packet and execute it.
         work
@@ -484,7 +534,7 @@ impl<VM: VMBinding> GCWorkScheduler<VM> {
         let first_stw_bucket = &self.work_buckets[WorkBucketStage::first_stw_stage()];
         debug_assert!(!first_stw_bucket.is_activated());
         first_stw_bucket.activate();
-        let _guard = self.worker_monitor.0.lock().unwrap();
-        self.worker_monitor.1.notify_all();
+        let mut guard = self.worker_monitor.lock();
+        guard.notify_all();
     }
 }
