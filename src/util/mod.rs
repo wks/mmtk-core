@@ -32,6 +32,8 @@ pub mod reference_processor;
 /// An analysis framework for collecting data and profiling in GC.
 #[cfg(feature = "analysis")]
 pub(crate) mod analysis;
+/// Heap dump facilities for debugging.
+pub(crate) mod dump;
 /// Logging edges to check duplicated edges in GC.
 #[cfg(feature = "extreme_assertions")]
 pub(crate) mod edge_logger;
