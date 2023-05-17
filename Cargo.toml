@@ -124,7 +124,7 @@ nogc_multi_space = []
 # To collect statistics for each GC work packet. Enabling this may introduce a small overhead (several percentage slowdown on benchmark time).
 work_packet_stats = []
 
-# Dump the heap during GC 
+# Dump the heap during GC
 debug_heap_dump = ["vo_bit"]
 
 # Count the malloc'd memory into the heap size

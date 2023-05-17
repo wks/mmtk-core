@@ -80,6 +80,8 @@ impl<VM: VMBinding> GCController<VM> {
     pub fn do_gc_until_completion(&mut self) {
         let gc_start = std::time::Instant::now();
 
+        self.mmtk.heap_dumper.start_recording(0);
+
         debug_assert!(
             self.scheduler.worker_monitor.debug_is_sleeping(),
             "Workers are still doing work when GC started."
@@ -135,5 +137,7 @@ impl<VM: VMBinding> GCController<VM> {
         end_of_gc.do_work_with_stat(&mut self.coordinator_worker, self.mmtk);
 
         self.scheduler.debug_assert_all_buckets_deactivated();
+
+        self.mmtk.heap_dumper.finish_recording();
     }
 }

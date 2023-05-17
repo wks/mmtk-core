@@ -3,6 +3,7 @@ use crate::plan::Plan;
 use crate::policy::sft_map::{create_sft_map, SFTMap};
 use crate::scheduler::GCWorkScheduler;
 
+use crate::util::dump::HeapDumper;
 #[cfg(feature = "extreme_assertions")]
 use crate::util::edge_logger::EdgeLogger;
 use crate::util::finalizable_processor::FinalizableProcessor;
@@ -91,6 +92,7 @@ pub struct MMTK<VM: VMBinding> {
     #[cfg(feature = "extreme_assertions")]
     pub(crate) edge_logger: EdgeLogger<VM::VMEdge>,
     inside_harness: AtomicBool,
+    pub(crate) heap_dumper: HeapDumper,
 }
 
 impl<VM: VMBinding> MMTK<VM> {
@@ -136,6 +138,7 @@ impl<VM: VMBinding> MMTK<VM> {
             inside_harness: AtomicBool::new(false),
             #[cfg(feature = "extreme_assertions")]
             edge_logger: EdgeLogger::new(),
+            heap_dumper: Default::default(),
         }
     }
 

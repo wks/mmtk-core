@@ -3,6 +3,10 @@ use super::*;
 use crate::plan::GcStatus;
 use crate::plan::ObjectsClosure;
 use crate::plan::VectorObjectQueue;
+use crate::plan::VectorQueue;
+use crate::util::dump::record::Record;
+use crate::util::dump::HeapDumperLocal;
+use crate::util::metadata::vo_bit;
 use crate::util::*;
 use crate::vm::edge_shape::Edge;
 use crate::vm::*;
@@ -805,15 +809,39 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
         // otherwise, scan the nodes in the buffer.
         let objects_to_scan = scanned_root_objects.as_deref().unwrap_or(buffer);
 
+        let mut local_heap_dumper = HeapDumperLocal::default();
+
         // Then scan those objects for edges.
         let mut scan_later = vec![];
         {
-            let mut closure = ObjectsClosure::<Self::E>::new(worker);
+            let mut edge_buf = VectorQueue::<EdgeOf<Self::E>>::new();
             for object in objects_to_scan.iter().copied() {
+                #[cfg(feature = "object_pinning")]
+                let pinned = memory_manager::is_pinned::<VM>(object);
+                #[cfg(not(feature = "object_pinning"))]
+                let pinned = false;
+                local_heap_dumper.add_record(Record::Node { objref: object, pinned, root: false });
                 if <VM as VMBinding>::VMScanning::support_edge_enqueuing(tls, object) {
                     trace!("Scan object (edge) {}", object);
                     // If an object supports edge-enqueuing, we enqueue its edges.
-                    <VM as VMBinding>::VMScanning::scan_object(tls, object, &mut closure);
+                    <VM as VMBinding>::VMScanning::scan_object(
+                        tls,
+                        object,
+                        &mut |edge: VM::VMEdge| {
+                            let from = object;
+                            let to = edge.load();
+                            let valid = vo_bit::is_vo_bit_set::<VM>(to);
+                            local_heap_dumper.add_record(Record::Edge { from, to, valid });
+
+                            edge_buf.push(edge);
+                            if edge_buf.is_full() {
+                                worker.add_work(
+                                    WorkBucketStage::Closure,
+                                    Self::E::new(edge_buf.take(), false, mmtk),
+                                );
+                            }
+                        },
+                    );
                     self.post_scan_object(object);
                 } else {
                     // If an object does not support edge-enqueuing, we have to use
@@ -841,12 +869,24 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
                     <VM as VMBinding>::VMScanning::scan_object_and_trace_edges(
                         tls,
                         object,
-                        object_tracer,
+                        &mut |to: ObjectReference| {
+                            let from = object;
+                            let valid = vo_bit::is_vo_bit_set::<VM>(to);
+                            local_heap_dumper.add_record(Record::Edge { from, to, valid });
+                            if valid {
+                                object_tracer.trace_object(to)
+                            } else {
+                                error!("Invalid edge: {} -> {}", from, to);
+                                to
+                            }
+                        },
                     );
                     self.post_scan_object(object);
                 }
             });
         }
+
+        local_heap_dumper.flush(&mmtk.heap_dumper);
     }
 }
 
