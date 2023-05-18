@@ -1,13 +1,13 @@
 //! This mod contains heap-dumping facilities for debugging.
 
-use std::{fs::File, path::Path, sync::Mutex};
+use std::{fs::File, io::BufWriter , sync::Mutex};
 
 use self::record::Record;
 
 use super::ObjectReference;
 
 pub mod record;
-pub mod yaml_writer;
+pub mod json_writer;
 
 pub trait RecordWriter {
     fn write_record(&mut self, record: Record);
@@ -37,11 +37,12 @@ impl HeapDumper {
         let mut sync = self.sync.lock().unwrap();
         assert!(sync.writer.is_none());
 
-        let file_name = format!("mmtk-heap-dump-{}.yml", gc_count);
+        let file_name = format!("mmtk-heap-dump-{}.json", gc_count);
         info!("Starting recording heap dump. File: {file_name}");
 
         let file = File::create(file_name).unwrap();
-        sync.writer = Some(Box::new(yaml_writer::YamlWriter::new(file)));
+        let buf_writer = BufWriter::new(file);
+        sync.writer = Some(Box::new(json_writer::JsonSeqWriter::new(Box::new(buf_writer))));
     }
 
     pub fn finish_recording(&self) {

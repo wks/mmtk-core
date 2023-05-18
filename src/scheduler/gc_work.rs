@@ -1,7 +1,6 @@
 use super::work_bucket::WorkBucketStage;
 use super::*;
 use crate::plan::GcStatus;
-use crate::plan::ObjectsClosure;
 use crate::plan::VectorObjectQueue;
 use crate::plan::VectorQueue;
 use crate::util::dump::record::Record;
@@ -820,7 +819,12 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
                 let pinned = memory_manager::is_pinned::<VM>(object);
                 #[cfg(not(feature = "object_pinning"))]
                 let pinned = false;
-                local_heap_dumper.add_record(Record::Node { objref: object, pinned, root: false });
+                let type_string = <VM::VMObjectModel as ObjectModel<VM>>::dump_type(object);
+                local_heap_dumper.add_record(Record::Node {
+                    objref: object,
+                    pinned,
+                    type_string,
+                });
                 if <VM as VMBinding>::VMScanning::support_edge_enqueuing(tls, object) {
                     trace!("Scan object (edge) {}", object);
                     // If an object supports edge-enqueuing, we enqueue its edges.
@@ -874,7 +878,14 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
                             let valid = vo_bit::is_vo_bit_set::<VM>(to);
                             local_heap_dumper.add_record(Record::Edge { from, to, valid });
                             if valid {
-                                object_tracer.trace_object(to)
+                                let new_to = object_tracer.trace_object(to);
+                                if new_to != to {
+                                    local_heap_dumper.add_record(Record::Forward {
+                                        from: to,
+                                        to: new_to,
+                                    });
+                                }
+                                new_to
                             } else {
                                 error!("Invalid edge: {} -> {}", from, to);
                                 to

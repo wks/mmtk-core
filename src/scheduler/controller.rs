@@ -80,7 +80,9 @@ impl<VM: VMBinding> GCController<VM> {
     pub fn do_gc_until_completion(&mut self) {
         let gc_start = std::time::Instant::now();
 
-        self.mmtk.heap_dumper.start_recording(0);
+        // We start recording now because we need access to the MMTk instance.
+        let gc_count = self.mmtk.get_plan().base().stats.gc_count.load(atomic::Ordering::SeqCst);
+        self.mmtk.heap_dumper.start_recording(gc_count);
 
         debug_assert!(
             self.scheduler.worker_monitor.debug_is_sleeping(),

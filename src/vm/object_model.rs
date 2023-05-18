@@ -429,7 +429,33 @@ pub trait ObjectModel<VM: VMBinding> {
     ///
     /// Arguments:
     /// * `object`: The object to be dumped.
-    fn dump_object(object: ObjectReference);
+    #[deprecated]
+    fn dump_object(_object: ObjectReference) {
+    }
+
+    /// Return a human-readable string that represents the type of the object.
+    /// Used during debugging or heap dumping.
+    ///
+    /// Arguments:
+    /// * `object`: The object to be dumped.
+    ///
+    /// Return `None` if type information is not available.
+    fn dump_type(_object: ObjectReference) -> Option<String> {
+        None
+    }
+
+    /// Return a human-readable string that represents other details of the object.
+    /// Used during debugging or heap dumping.
+    /// It could be anything helpful for debugging.
+    ///
+    /// Arguments:
+    /// * `object`: The object to be dumped.
+    ///
+    /// The returned string may contain multiple lines.
+    /// Return `None` if type information is not available.
+    fn dump_comment(_object: ObjectReference) -> Option<String> {
+        None
+    }
 
     /// Return if an object is valid from the runtime point of view. This is used
     /// to debug MMTk.

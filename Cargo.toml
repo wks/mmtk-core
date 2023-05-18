@@ -46,6 +46,7 @@ sys-info = "0.9"
 regex = "1.7.0"
 static_assertions = "1.1.0"
 delegate = "0.9.0"
+json = "0.12.4"
 
 [dev-dependencies]
 rand = "0.8.5"

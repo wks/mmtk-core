@@ -5,14 +5,21 @@ use crate::util::ObjectReference;
 /// An event in tracing (i.e. computing transitive closure from roots).
 #[derive(Debug)]
 pub enum Record {
+    /// Visiting an object from a root.
+    Root {
+        /// The object.
+        objref: ObjectReference,
+        /// If the root pins the object.
+        pinning: bool,
+    },
     /// Visiting an object.
     Node {
         /// The object reference of the object, in the to-space.
         objref: ObjectReference,
-        /// If the object is pinned.
+        /// If the object is actually pinned.
         pinned: bool,
-        /// If the object is pointed by a root.
-        root: bool,
+        /// Optional string to represent the type.
+        type_string: Option<String>,
     },
     /// Visiting a reference field of an object.
     Edge {
