@@ -5,13 +5,13 @@ use crate::util::ObjectReference;
 
 use super::{record::Record, RecordWriter};
 
-/// This writes the heap-dump records into a custom application/json-seq format.
+/// This writes the heap-dump records into a newline-delimited JSON format.
 pub struct JsonSeqWriter {
     file: Box<dyn std::io::Write>,
 }
 
 impl JsonSeqWriter {
-    const START_OF_RECORD: char = '\x1e';
+    //const START_OF_RECORD: char = '\x1e';
     const END_OF_RECORD: char = '\x0a';
 
     pub fn new(file: Box<dyn std::io::Write>) -> Self {
@@ -39,7 +39,7 @@ impl RecordWriter for JsonSeqWriter {
     }
 
     fn write_record(&mut self, record: Record) {
-        write!(self.file, "{}", Self::START_OF_RECORD).unwrap();
+        //write!(self.file, "{}", Self::START_OF_RECORD).unwrap();
         let json_value = match record {
             Record::Root { objref, pinning } => {
                 json::object! {
