@@ -820,10 +820,12 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
                 #[cfg(not(feature = "object_pinning"))]
                 let pinned = false;
                 let type_string = <VM::VMObjectModel as ObjectModel<VM>>::dump_type(object);
+                let comment = <VM::VMObjectModel as ObjectModel<VM>>::dump_comment(object);
                 local_heap_dumper.add_record(Record::Node {
                     objref: object,
                     pinned,
                     type_string,
+                    comment,
                 });
                 if <VM as VMBinding>::VMScanning::support_edge_enqueuing(tls, object) {
                     trace!("Scan object (edge) {}", object);

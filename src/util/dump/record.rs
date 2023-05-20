@@ -20,6 +20,8 @@ pub enum Record {
         pinned: bool,
         /// Optional string to represent the type.
         type_string: Option<String>,
+        /// Optional string to represent detail information.
+        comment: Option<String>,
     },
     /// Visiting a reference field of an object.
     Edge {

@@ -52,12 +52,14 @@ impl RecordWriter for JsonSeqWriter {
                 objref,
                 pinned,
                 type_string,
+                comment,
             } => {
                 json::object! {
                     event: "Node",
                     objref: objref,
                     pinned: pinned,
-                    type_string: type_string
+                    type_string: type_string,
+                    comment: comment,
                 }
             }
             Record::Edge { from, to, valid } => {
