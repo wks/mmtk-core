@@ -254,6 +254,8 @@ impl<VM: VMBinding> GCWork<VM> for EndOfGC {
 /// `ProcessEdgesWork` instance.
 struct ProcessEdgesWorkTracer<E: ProcessEdgesWork> {
     process_edges_work: E,
+    is_resurrector: bool,
+    local_heap_dumper: HeapDumperLocal,
     stage: WorkBucketStage,
 }
 
@@ -266,6 +268,16 @@ impl<E: ProcessEdgesWork> ObjectTracer for ProcessEdgesWorkTracer<E> {
     /// closure is inlined, too.
     fn trace_object(&mut self, object: ObjectReference) -> ObjectReference {
         let result = self.process_edges_work.trace_object(object);
+        if self.is_resurrector {
+            self.local_heap_dumper
+                .add_record(Record::Resurrect { objref: object });
+            if result != object {
+                self.local_heap_dumper.add_record(Record::Forward {
+                    from: object,
+                    to: result,
+                });
+            }
+        }
         self.flush_if_full();
         result
     }
@@ -290,6 +302,7 @@ impl<E: ProcessEdgesWork> ProcessEdgesWorkTracer<E> {
         let work_packet = self.process_edges_work.create_scan_work(next_nodes, false);
         let worker = self.process_edges_work.worker();
         worker.scheduler().work_buckets[self.stage].add(work_packet);
+        self.local_heap_dumper.flush(&worker.mmtk.heap_dumper);
     }
 }
 
@@ -299,6 +312,7 @@ impl<E: ProcessEdgesWork> ProcessEdgesWorkTracer<E> {
 /// `stage`.
 struct ProcessEdgesWorkTracerContext<E: ProcessEdgesWork> {
     stage: WorkBucketStage,
+    is_resurrector: bool,
     phantom_data: PhantomData<E>,
 }
 
@@ -326,6 +340,8 @@ impl<E: ProcessEdgesWork> ObjectTracerContext<E::VM> for ProcessEdgesWorkTracerC
         // Cretae the tracer.
         let mut tracer = ProcessEdgesWorkTracer {
             process_edges_work,
+            is_resurrector: self.is_resurrector,
+            local_heap_dumper: Default::default(),
             stage: self.stage,
         };
 
@@ -367,6 +383,7 @@ impl<E: ProcessEdgesWork> GCWork<E::VM> for VMProcessWeakRefs<E> {
         let need_to_repeat = {
             let tracer_factory = ProcessEdgesWorkTracerContext::<E> {
                 stage,
+                is_resurrector: true,
                 phantom_data: PhantomData,
             };
             <E::VM as VMBinding>::VMScanning::process_weak_refs(worker, tracer_factory)
@@ -409,6 +426,7 @@ impl<E: ProcessEdgesWork> GCWork<E::VM> for VMForwardWeakRefs<E> {
 
         let tracer_factory = ProcessEdgesWorkTracerContext::<E> {
             stage,
+            is_resurrector: true,
             phantom_data: PhantomData,
         };
         <E::VM as VMBinding>::VMScanning::forward_weak_refs(worker, tracer_factory)
@@ -776,6 +794,8 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
             }
         }
 
+        let mut local_heap_dumper = HeapDumperLocal::default();
+
         // If this is a root packet, the objects in this packet will have not been traced, yet.
         //
         // This step conceptually traces the edges from root slots to the objects they point to.
@@ -791,6 +811,10 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
             process_edges_work.set_worker(worker);
 
             for object in buffer.iter().copied() {
+                local_heap_dumper.add_record(Record::Root {
+                    objref: object,
+                    pinning: true,
+                });
                 let new_object = process_edges_work.trace_object(object);
                 debug_assert_eq!(
                     object, new_object,
@@ -807,8 +831,6 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
         // If it is a root packet, scan the nodes that are first scanned;
         // otherwise, scan the nodes in the buffer.
         let objects_to_scan = scanned_root_objects.as_deref().unwrap_or(buffer);
-
-        let mut local_heap_dumper = HeapDumperLocal::default();
 
         // Then scan those objects for edges.
         let mut scan_later = vec![];
@@ -865,6 +887,7 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
         if !scan_later.is_empty() {
             let object_tracer_context = ProcessEdgesWorkTracerContext::<Self::E> {
                 stage: WorkBucketStage::Closure,
+                is_resurrector: false,
                 phantom_data: PhantomData,
             };
 
