@@ -18,10 +18,10 @@ use crate::vm::VMBinding;
 pub(crate) const VO_BIT_SIDE_METADATA_SPEC: SideMetadataSpec =
     crate::util::metadata::side_metadata::spec_defs::VO_BIT;
 
-pub const VO_BIT_SIDE_METADATA_ADDR: Address = VO_BIT_SIDE_METADATA_SPEC.get_absolute_offset();
+pub(crate) const VO_BIT_SIDE_METADATA_ADDR: Address = VO_BIT_SIDE_METADATA_SPEC.get_absolute_offset();
 
 /// Atomically set the VO bit for an object.
-pub fn set_vo_bit<VM: VMBinding>(object: ObjectReference) {
+pub(crate) fn set_vo_bit<VM: VMBinding>(object: ObjectReference) {
     debug_assert!(
         !is_vo_bit_set::<VM>(object),
         "{:x}: VO bit already set",
@@ -37,7 +37,7 @@ pub fn unset_vo_bit<VM: VMBinding>(object: ObjectReference) {
 }
 
 /// Atomically unset the VO bit for an object, regardless whether the bit is set or not.
-pub fn unset_vo_bit_nocheck<VM: VMBinding>(object: ObjectReference) {
+pub(crate) fn unset_vo_bit_nocheck<VM: VMBinding>(object: ObjectReference) {
     VO_BIT_SIDE_METADATA_SPEC.store_atomic::<u8>(object.to_address::<VM>(), 0, Ordering::SeqCst);
 }
 
@@ -47,7 +47,7 @@ pub fn unset_vo_bit_nocheck<VM: VMBinding>(object: ObjectReference) {
 /// # Safety
 ///
 /// This is unsafe: check the comment on `side_metadata::store`
-pub unsafe fn unset_vo_bit_unsafe<VM: VMBinding>(object: ObjectReference) {
+pub(crate) unsafe fn unset_vo_bit_unsafe<VM: VMBinding>(object: ObjectReference) {
     debug_assert!(is_vo_bit_set::<VM>(object), "{:x}: VO bit not set", object);
     VO_BIT_SIDE_METADATA_SPEC.store::<u8>(object.to_address::<VM>(), 0);
 }
@@ -59,7 +59,7 @@ pub fn is_vo_bit_set<VM: VMBinding>(object: ObjectReference) -> bool {
 
 /// Check if an address can be turned directly into an object reference using the VO bit.
 /// If so, return `Some(object)`. Otherwise return `None`.
-pub fn is_vo_bit_set_for_addr<VM: VMBinding>(address: Address) -> Option<ObjectReference> {
+pub(crate) fn is_vo_bit_set_for_addr<VM: VMBinding>(address: Address) -> Option<ObjectReference> {
     let potential_object = ObjectReference::from_raw_address(address);
     let addr = potential_object.to_address::<VM>();
 
@@ -82,7 +82,7 @@ pub fn is_vo_bit_set_for_addr<VM: VMBinding>(address: Address) -> Option<ObjectR
 /// # Safety
 ///
 /// This is unsafe: check the comment on `side_metadata::load`
-pub unsafe fn is_vo_bit_set_unsafe<VM: VMBinding>(address: Address) -> Option<ObjectReference> {
+pub(crate) unsafe fn is_vo_bit_set_unsafe<VM: VMBinding>(address: Address) -> Option<ObjectReference> {
     let potential_object = ObjectReference::from_raw_address(address);
     let addr = potential_object.to_address::<VM>();
 
@@ -99,6 +99,6 @@ pub unsafe fn is_vo_bit_set_unsafe<VM: VMBinding>(address: Address) -> Option<Ob
 }
 
 /// Bulk zero the VO bit.
-pub fn bzero_vo_bit(start: Address, size: usize) {
+pub(crate) fn bzero_vo_bit(start: Address, size: usize) {
     VO_BIT_SIDE_METADATA_SPEC.bzero_metadata(start, size);
 }
