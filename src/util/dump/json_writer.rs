@@ -41,11 +41,12 @@ impl RecordWriter for JsonSeqWriter {
     fn write_record(&mut self, record: Record) {
         //write!(self.file, "{}", Self::START_OF_RECORD).unwrap();
         let json_value = match record {
-            Record::Root { objref, pinning } => {
+            Record::Root { objref, pinning, valid } => {
                 json::object! {
                     event: "Root",
                     objref: objref,
                     pinning: pinning,
+                    valid: valid,
                 }
             }
             Record::Node {

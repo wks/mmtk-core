@@ -11,6 +11,8 @@ pub enum Record {
         objref: ObjectReference,
         /// If the root pins the object.
         pinning: bool,
+        /// `false` if `to` does not point to a valid object.
+        valid: bool,
     },
     /// Visiting an object.
     Node {
