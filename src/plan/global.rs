@@ -373,6 +373,8 @@ pub struct BasePlan<VM: VMBinding> {
     pub user_triggered_collection: AtomicBool,
     pub internal_triggered_collection: AtomicBool,
     pub last_internal_triggered_collection: AtomicBool,
+    // Did the last GC visit invalid edge?
+    pub visited_invalid_edge: AtomicBool,
     // Has an allocation succeeded since the emergency collection?
     pub allocation_success: AtomicBool,
     // Maximum number of failed attempts by a single thread
@@ -512,6 +514,7 @@ impl<VM: VMBinding> BasePlan<VM> {
             user_triggered_collection: AtomicBool::new(false),
             internal_triggered_collection: AtomicBool::new(false),
             last_internal_triggered_collection: AtomicBool::new(false),
+            visited_invalid_edge: AtomicBool::new(false),
             allocation_success: AtomicBool::new(false),
             max_collection_attempts: AtomicUsize::new(0),
             cur_collection_attempts: AtomicUsize::new(0),

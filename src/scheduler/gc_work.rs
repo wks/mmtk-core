@@ -12,11 +12,17 @@ use crate::vm::*;
 use crate::*;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
+use std::sync::atomic::Ordering;
 
 pub struct ScheduleCollection;
 
 impl<VM: VMBinding> GCWork<VM> for ScheduleCollection {
     fn do_work(&mut self, worker: &mut GCWorker<VM>, mmtk: &'static MMTK<VM>) {
+        mmtk.plan
+            .base()
+            .visited_invalid_edge
+            .store(false, Ordering::SeqCst);
+
         mmtk.plan.schedule_collection(worker.scheduler());
 
         // Tell GC trigger that GC started.
@@ -229,6 +235,10 @@ impl<VM: VMBinding> GCWork<VM> for EndOfGC {
             mmtk.plan.get_total_pages(),
             self.elapsed.as_millis()
         );
+
+        if mmtk.plan.base().visited_invalid_edge.load(Ordering::SeqCst) {
+            panic!("The GC visited invalid edges.  Terminating...")
+        }
 
         // We assume this is the only running work packet that accesses plan at the point of execution
         #[allow(clippy::cast_ref_to_mut)]
@@ -811,16 +821,26 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
             process_edges_work.set_worker(worker);
 
             for object in buffer.iter().copied() {
+                let valid = vo_bit::is_vo_bit_set::<VM>(object);
                 local_heap_dumper.add_record(Record::Root {
                     objref: object,
                     pinning: true,
+                    valid,
                 });
-                let new_object = process_edges_work.trace_object(object);
-                debug_assert_eq!(
-                    object, new_object,
-                    "Object moved while tracing root unmovable root object: {} -> {}",
-                    object, new_object
-                );
+                if valid {
+                    let new_object = process_edges_work.trace_object(object);
+                    debug_assert_eq!(
+                        object, new_object,
+                        "Object moved while tracing root unmovable root object: {} -> {}",
+                        object, new_object
+                    );
+                } else {
+                    mmtk.plan
+                        .base()
+                        .visited_invalid_edge
+                        .store(true, Ordering::SeqCst);
+                    error!("Root points to invalid objref {}", object);
+                }
             }
 
             // This contains root objects that are visited the first time.
@@ -841,14 +861,23 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
                 let pinned = memory_manager::is_pinned::<VM>(object);
                 #[cfg(not(feature = "object_pinning"))]
                 let pinned = false;
-                let type_string = <VM::VMObjectModel as ObjectModel<VM>>::dump_type(object);
-                let comment = <VM::VMObjectModel as ObjectModel<VM>>::dump_comment(object);
-                local_heap_dumper.add_record(Record::Node {
-                    objref: object,
-                    pinned,
-                    type_string,
-                    comment,
-                });
+                let valid = vo_bit::is_vo_bit_set::<VM>(object);
+                if valid {
+                    let type_string = <VM::VMObjectModel as ObjectModel<VM>>::dump_type(object);
+                    let comment = <VM::VMObjectModel as ObjectModel<VM>>::dump_comment(object);
+                    local_heap_dumper.add_record(Record::Node {
+                        objref: object,
+                        pinned,
+                        type_string,
+                        comment,
+                    });
+                } else {
+                    mmtk.plan
+                        .base()
+                        .visited_invalid_edge
+                        .store(true, Ordering::SeqCst);
+                    error!("Attempt to scan invalid object {}", object);
+                }
                 if <VM as VMBinding>::VMScanning::support_edge_enqueuing(tls, object) {
                     trace!("Scan object (edge) {}", object);
                     // If an object supports edge-enqueuing, we enqueue its edges.
@@ -912,6 +941,10 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
                                 }
                                 new_to
                             } else {
+                                mmtk.plan
+                                    .base()
+                                    .visited_invalid_edge
+                                    .store(true, Ordering::SeqCst);
                                 error!("Invalid edge: {} -> {}", from, to);
                                 to
                             }
