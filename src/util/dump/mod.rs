@@ -1,13 +1,16 @@
 //! This mod contains heap-dumping facilities for debugging.
 
-use std::{fs::File, io::BufWriter , sync::Mutex};
+use std::{fs::File, io::BufWriter, sync::Mutex};
+
+use crate::util::dump::noop_writer::NoopWriter;
 
 use self::record::Record;
 
 use super::ObjectReference;
 
-pub mod record;
 pub mod json_writer;
+pub mod noop_writer;
+pub mod record;
 
 pub trait RecordWriter {
     fn write_record(&mut self, record: Record);
@@ -37,12 +40,14 @@ impl HeapDumper {
         let mut sync = self.sync.lock().unwrap();
         assert!(sync.writer.is_none());
 
-        let file_name = format!("mmtk-heap-dump-{}.json", gc_count);
-        info!("Starting recording heap dump. File: {file_name}");
+        // let file_name = format!("mmtk-heap-dump-{}.json", gc_count);
+        // info!("Starting recording heap dump. File: {file_name}");
 
-        let file = File::create(file_name).unwrap();
-        let buf_writer = BufWriter::new(file);
-        sync.writer = Some(Box::new(json_writer::JsonSeqWriter::new(Box::new(buf_writer))));
+        // let file = File::create(file_name).unwrap();
+        // let buf_writer = BufWriter::new(file);
+        // sync.writer = Some(Box::new(json_writer::JsonSeqWriter::new(Box::new(buf_writer))));
+
+        sync.writer = Some(Box::new(NoopWriter));
     }
 
     pub fn finish_recording(&self) {

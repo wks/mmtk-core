@@ -821,7 +821,7 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
             process_edges_work.set_worker(worker);
 
             for object in buffer.iter().copied() {
-                let valid = vo_bit::is_vo_bit_set::<VM>(object);
+                let valid = memory_manager::is_mmtk_object(object.to_raw_address());
                 local_heap_dumper.add_record(Record::Root {
                     objref: object,
                     pinning: true,
@@ -857,21 +857,8 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
         {
             let mut edge_buf = VectorQueue::<EdgeOf<Self::E>>::new();
             for object in objects_to_scan.iter().copied() {
-                #[cfg(feature = "object_pinning")]
-                let pinned = memory_manager::is_pinned::<VM>(object);
-                #[cfg(not(feature = "object_pinning"))]
-                let pinned = false;
-                let valid = vo_bit::is_vo_bit_set::<VM>(object);
-                if valid {
-                    let type_string = <VM::VMObjectModel as ObjectModel<VM>>::dump_type(object);
-                    let comment = <VM::VMObjectModel as ObjectModel<VM>>::dump_comment(object);
-                    local_heap_dumper.add_record(Record::Node {
-                        objref: object,
-                        pinned,
-                        type_string,
-                        comment,
-                    });
-                } else {
+                let valid = memory_manager::is_mmtk_object(object.to_raw_address());
+                if !valid {
                     mmtk.plan
                         .base()
                         .visited_invalid_edge
@@ -887,7 +874,7 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
                         &mut |edge: VM::VMEdge| {
                             let from = object;
                             let to = edge.load();
-                            let valid = vo_bit::is_vo_bit_set::<VM>(to);
+                            let valid = memory_manager::is_mmtk_object(to.to_raw_address());
                             local_heap_dumper.add_record(Record::Edge { from, to, valid });
 
                             edge_buf.push(edge);
@@ -929,7 +916,7 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
                         object,
                         &mut |to: ObjectReference| {
                             let from = object;
-                            let valid = vo_bit::is_vo_bit_set::<VM>(to);
+                            let valid = memory_manager::is_mmtk_object(to.to_raw_address());
                             local_heap_dumper.add_record(Record::Edge { from, to, valid });
                             if valid {
                                 let new_to = object_tracer.trace_object(to);
@@ -945,12 +932,27 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
                                     .base()
                                     .visited_invalid_edge
                                     .store(true, Ordering::SeqCst);
-                                error!("Invalid edge: {} -> {}", from, to);
+                                panic!("Invalid edge: {} -> {}", from, to);
+
                                 to
                             }
                         },
                     );
                     self.post_scan_object(object);
+
+                    #[cfg(feature = "object_pinning")]
+                    let pinned = memory_manager::is_pinned::<VM>(object);
+                    #[cfg(not(feature = "object_pinning"))]
+                    let pinned = false;
+
+                    let type_string = <VM::VMObjectModel as ObjectModel<VM>>::dump_type(object);
+                    let comment = <VM::VMObjectModel as ObjectModel<VM>>::dump_comment(object);
+                    local_heap_dumper.add_record(Record::Node {
+                        objref: object,
+                        pinned,
+                        type_string,
+                        comment,
+                    });
                 }
             });
         }
