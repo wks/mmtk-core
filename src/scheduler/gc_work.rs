@@ -279,6 +279,7 @@ impl<E: ProcessEdgesWork> ObjectTracer for ProcessEdgesWorkTracer<E> {
     fn trace_object(&mut self, object: ObjectReference) -> ObjectReference {
         let result = self.process_edges_work.trace_object(object);
         if self.is_resurrector {
+            mmtk_on_resurrect(object);
             self.local_heap_dumper
                 .add_record(Record::Resurrect { objref: object });
             if result != object {
@@ -769,6 +770,16 @@ impl<VM: VMBinding> DerefMut for SFTProcessEdges<VM> {
     }
 }
 
+#[no_mangle]
+pub extern "C" fn mmtk_on_broken_edge() {
+    // Set break point here in GDB to stop on broken edges.
+}
+
+#[no_mangle]
+pub extern "C" fn mmtk_on_resurrect(object: ObjectReference) {
+    // Set break point here in GDB to stop on resurrected objects.
+}
+
 /// Trait for a work packet that scans objects
 pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
     /// The associated ProcessEdgesWork for processing the edges of the objects in this packet.
@@ -858,7 +869,21 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
             let mut edge_buf = VectorQueue::<EdgeOf<Self::E>>::new();
             for object in objects_to_scan.iter().copied() {
                 let valid = memory_manager::is_mmtk_object(object.to_raw_address());
-                if !valid {
+                if valid {
+                    #[cfg(feature = "object_pinning")]
+                    let pinned = memory_manager::is_pinned::<VM>(object);
+                    #[cfg(not(feature = "object_pinning"))]
+                    let pinned = false;
+
+                    let type_string = <VM::VMObjectModel as ObjectModel<VM>>::dump_type(object);
+                    let comment = <VM::VMObjectModel as ObjectModel<VM>>::dump_comment(object);
+                    local_heap_dumper.add_record(Record::Node {
+                        objref: object,
+                        pinned,
+                        type_string,
+                        comment,
+                    });
+                } else {
                     mmtk.plan
                         .base()
                         .visited_invalid_edge
@@ -932,27 +957,14 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
                                     .base()
                                     .visited_invalid_edge
                                     .store(true, Ordering::SeqCst);
-                                panic!("Invalid edge: {} -> {}", from, to);
+                                error!("Invalid edge: {} -> {}", from, to);
+                                mmtk_on_broken_edge();
 
                                 to
                             }
                         },
                     );
                     self.post_scan_object(object);
-
-                    #[cfg(feature = "object_pinning")]
-                    let pinned = memory_manager::is_pinned::<VM>(object);
-                    #[cfg(not(feature = "object_pinning"))]
-                    let pinned = false;
-
-                    let type_string = <VM::VMObjectModel as ObjectModel<VM>>::dump_type(object);
-                    let comment = <VM::VMObjectModel as ObjectModel<VM>>::dump_comment(object);
-                    local_heap_dumper.add_record(Record::Node {
-                        objref: object,
-                        pinned,
-                        type_string,
-                        comment,
-                    });
                 }
             });
         }

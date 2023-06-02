@@ -125,6 +125,8 @@ impl<VM: VMBinding> MMTK<VM> {
             plan.base().heap.get_discontig_end(),
         );
 
+        let heap_dump = *options.heap_dump;
+
         MMTK {
             options,
             plan,
@@ -138,7 +140,7 @@ impl<VM: VMBinding> MMTK<VM> {
             inside_harness: AtomicBool::new(false),
             #[cfg(feature = "extreme_assertions")]
             edge_logger: EdgeLogger::new(),
-            heap_dumper: Default::default(),
+            heap_dumper: HeapDumper::new(heap_dump),
         }
     }
 

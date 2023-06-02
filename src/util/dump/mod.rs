@@ -18,6 +18,7 @@ pub trait RecordWriter {
 }
 
 pub struct HeapDumper {
+    actually_dump: bool,
     sync: Mutex<HeapDumperSync>,
 }
 
@@ -27,27 +28,31 @@ struct HeapDumperSync {
     writer: Option<Box<dyn RecordWriter>>,
 }
 
-impl Default for HeapDumper {
-    fn default() -> Self {
+impl HeapDumper {
+    pub fn new(actually_dump: bool) -> Self {
         Self {
+            actually_dump,
             sync: Mutex::new(HeapDumperSync { writer: None }),
         }
     }
-}
 
-impl HeapDumper {
     pub fn start_recording(&self, gc_count: usize) {
         let mut sync = self.sync.lock().unwrap();
         assert!(sync.writer.is_none());
 
-        // let file_name = format!("mmtk-heap-dump-{}.json", gc_count);
-        // info!("Starting recording heap dump. File: {file_name}");
+        if self.actually_dump {
+            let file_name = format!("mmtk-heap-dump-{}.json", gc_count);
+            info!("Starting heap dump. File: {file_name}");
 
-        // let file = File::create(file_name).unwrap();
-        // let buf_writer = BufWriter::new(file);
-        // sync.writer = Some(Box::new(json_writer::JsonSeqWriter::new(Box::new(buf_writer))));
-
-        sync.writer = Some(Box::new(NoopWriter));
+            let file = File::create(file_name).unwrap();
+            let buf_writer = BufWriter::new(file);
+            sync.writer = Some(Box::new(json_writer::JsonSeqWriter::new(Box::new(
+                buf_writer,
+            ))));
+        } else {
+            info!("Starting no-op heap dumper.");
+            sync.writer = Some(Box::new(NoopWriter));
+        }
     }
 
     pub fn finish_recording(&self) {
@@ -57,7 +62,7 @@ impl HeapDumper {
         sync.writer.as_mut().unwrap().flush();
         sync.writer = None;
 
-        info!("Finished recording heap dump.");
+        info!("Finished heap dump.");
     }
 
     pub fn write_many(&self, records: Vec<Record>) {
