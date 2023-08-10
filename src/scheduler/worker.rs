@@ -383,9 +383,7 @@ impl<VM: VMBinding> GCWorker<VM> {
             // probe! expands to an empty block on unsupported platforms
             #[allow(unused_variables)]
             let typename = work.get_type_name();
-            #[allow(unused_variables)]
-            let size = work.debug_get_size().unwrap_or(0);
-            probe!(mmtk, work, typename.as_ptr(), typename.len(), size);
+            probe!(mmtk, work, typename.as_ptr(), typename.len());
             work.do_work_with_stat(self, mmtk);
         }
     }

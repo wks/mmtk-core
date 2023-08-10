@@ -23,6 +23,10 @@ pub trait GCWork<VM: VMBinding>: 'static + Send {
         );
         debug_assert!(!worker.tls.0.0.is_null(), "TLS must be set correctly for a GC worker before the worker does any work. GC Worker {} has no valid tls.", worker.ordinal);
 
+        #[allow(unused_variables)]
+        let size = self.debug_get_size().unwrap_or(0);
+        probe!(mmtk, work_size, size);
+
         #[cfg(feature = "work_packet_stats")]
         // Start collecting statistics
         let stat = {
