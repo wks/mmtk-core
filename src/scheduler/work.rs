@@ -4,6 +4,18 @@ use crate::vm::VMBinding;
 #[cfg(feature = "work_packet_stats")]
 use std::any::{type_name, TypeId};
 
+#[inline(never)] // Disable inlining to prevent the probe! to be repeated in every generic instantiation.
+#[allow(unused_variables)] // probe! expands to an empty block on unsupported platforms
+fn probe_work_start(typename: &str, size: usize) {
+    probe!(mmtk, work_start, typename.as_ptr(), typename.len(), size);
+}
+
+#[inline(never)] // Disable inlining to prevent the probe! to be repeated in every generic instantiation.
+#[allow(unused_variables)] // probe! expands to an empty block on unsupported platforms
+fn probe_work_end(typename: &str, size: usize) {
+    probe!(mmtk, work_end, typename.as_ptr(), typename.len(), size);
+}
+
 pub trait GCWork<VM: VMBinding>: 'static + Send {
     /// Define the work for this packet. However, this is not supposed to be called directly.
     /// Usually `do_work_with_stat()` should be used.
@@ -30,8 +42,14 @@ pub trait GCWork<VM: VMBinding>: 'static + Send {
             worker_stat.measure_work(TypeId::of::<Self>(), type_name::<Self>(), mmtk)
         };
 
+        let typename = self.get_type_name();
+        let size = self.debug_get_size().unwrap_or(0);
+        probe_work_start(typename, size);
+
         // Do the actual work
         self.do_work(worker, mmtk);
+
+        probe_work_end(typename, size);
 
         #[cfg(feature = "work_packet_stats")]
         // Finish collecting statistics

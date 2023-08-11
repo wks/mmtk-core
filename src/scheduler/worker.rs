@@ -370,22 +370,11 @@ impl<VM: VMBinding> GCWorker<VM> {
         self.tls = tls;
         self.copy = crate::plan::create_gc_worker_context(tls, mmtk);
         loop {
-            // Instead of having work_start and work_end tracepoints, we have
-            // one tracepoint before polling for more work and one tracepoint
-            // before executing the work.
-            // This allows measuring the distribution of both the time needed
-            // poll work (between work_poll and work), and the time needed to
-            // execute work (between work and next work_poll).
-            // If we have work_start and work_end, we cannot measure the first
-            // poll.
+            // This tracepoint allows measuring the distribution of the time needed to poll work
+            // (between this `work_poll` and the `work_start` in `work.do_work_with_stat`).
             probe!(mmtk, work_poll);
             let mut work = self.poll();
-            // probe! expands to an empty block on unsupported platforms
-            #[allow(unused_variables)]
-            let typename = work.get_type_name();
-            #[allow(unused_variables)]
-            let size = work.debug_get_size().unwrap_or(0);
-            probe!(mmtk, work, typename.as_ptr(), typename.len(), size);
+
             work.do_work_with_stat(self, mmtk);
         }
     }
