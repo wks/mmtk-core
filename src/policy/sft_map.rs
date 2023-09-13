@@ -31,6 +31,10 @@ pub trait SFTMap {
     /// mostly used inside MMTk, and in most cases, we know that they are within our space address range.
     fn get_checked(&self, address: Address) -> &dyn SFT;
 
+    unsafe fn get_space_ptr(&self, _address: Address) -> *const () {
+        unimplemented!()
+    }
+
     /// Set SFT for the address range. The address must have a valid SFT entry in the table.
     ///
     /// # Safety
@@ -457,6 +461,12 @@ mod sparse_chunk_map {
         unsafe fn get_unchecked(&self, address: Address) -> &dyn SFT {
             let cell = self.sft.get_unchecked(address.chunk_index());
             cell.load()
+        }
+
+        unsafe fn get_space_ptr(&self, address: Address) -> *const () {
+            let sft_ary_ptr = self.sft.as_ptr() as *const *const ();
+            let index = address.chunk_index();
+            *(sft_ary_ptr.offset(index as isize * 2))
         }
 
         /// Update SFT map for the given address range.
