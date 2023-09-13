@@ -227,7 +227,7 @@ pub trait Space<VM: VMBinding>: 'static + SFT + Sync + Downcast {
             // TODO: For `DenseChunkMap`, it is possible to reduce one level of dereferencing by
             // letting each space remember its index in `DenseChunkMap::index_map`.
             let self_ptr = self as *const _ as *const ();
-            let other_ptr = SFT_MAP.get_checked(start) as *const _ as *const ();
+            let other_ptr = unsafe { SFT_MAP.get_unchecked(start) } as *const _ as *const ();
             self_ptr == other_ptr
         } else {
             start >= self.common().start && start < self.common().start + self.common().extent
