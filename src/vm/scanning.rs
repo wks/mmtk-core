@@ -2,18 +2,25 @@ use crate::plan::Mutator;
 use crate::scheduler::GCWorker;
 use crate::util::ObjectReference;
 use crate::util::VMWorkerThread;
-use crate::vm::edge_shape::Edge;
+use crate::vm::edge_shape::{Edge, MemorySlice};
 use crate::vm::VMBinding;
 
 /// Callback trait of scanning functions that report edges.
-pub trait EdgeVisitor<ES: Edge> {
+pub trait EdgeVisitor<VM: VMBinding> {
     /// Call this function for each edge.
-    fn visit_edge(&mut self, edge: ES);
+    fn visit_edge(&mut self, edge: VM::VMEdge);
+
+    /// Call this function to visit a slice that contains many edges.
+    fn visit_slice(&mut self, slice: VM::VMMemorySlice) {
+        for edge in slice.iter_edges() {
+            self.visit_edge(edge);
+        }
+    }
 }
 
 /// This lets us use closures as EdgeVisitor.
-impl<ES: Edge, F: FnMut(ES)> EdgeVisitor<ES> for F {
-    fn visit_edge(&mut self, edge: ES) {
+impl<VM: VMBinding, F: FnMut(VM::VMEdge)> EdgeVisitor<VM> for F {
+    fn visit_edge(&mut self, edge: VM::VMEdge) {
         #[cfg(debug_assertions)]
         trace!(
             "(FunctionClosure) Visit edge {:?} (pointing to {})",
@@ -162,7 +169,7 @@ pub trait Scanning<VM: VMBinding> {
     /// * `tls`: The VM-specific thread-local storage for the current worker.
     /// * `object`: The object to be scanned.
     /// * `edge_visitor`: Called back for each edge.
-    fn scan_object<EV: EdgeVisitor<VM::VMEdge>>(
+    fn scan_object<EV: EdgeVisitor<VM>>(
         tls: VMWorkerThread,
         object: ObjectReference,
         edge_visitor: &mut EV,

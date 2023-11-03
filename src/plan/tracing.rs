@@ -98,7 +98,7 @@ impl<'a, E: ProcessEdgesWork> ObjectsClosure<'a, E> {
     }
 }
 
-impl<'a, E: ProcessEdgesWork> EdgeVisitor<EdgeOf<E>> for ObjectsClosure<'a, E> {
+impl<'a, E: ProcessEdgesWork> EdgeVisitor<E::VM> for ObjectsClosure<'a, E> {
     fn visit_edge(&mut self, slot: EdgeOf<E>) {
         #[cfg(debug_assertions)]
         {
