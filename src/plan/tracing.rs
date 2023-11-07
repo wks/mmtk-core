@@ -1,7 +1,7 @@
 //! This module contains code useful for tracing,
 //! i.e. visiting the reachable objects by traversing all or part of an object graph.
 
-use crate::scheduler::gc_work::{EdgeOf, ProcessEdgesWork};
+use crate::scheduler::gc_work::{EdgeOf, ProcessEdgesWork, ProcessSlicesWork, SliceOf};
 use crate::scheduler::{GCWorker, WorkBucketStage};
 use crate::util::ObjectReference;
 use crate::vm::EdgeVisitor;
@@ -73,26 +73,55 @@ impl ObjectQueue for VectorQueue<ObjectReference> {
 
 /// A transitive closure visitor to collect all the edges of an object.
 pub struct ObjectsClosure<'a, E: ProcessEdgesWork> {
-    buffer: VectorQueue<EdgeOf<E>>,
+    edge_buffer: Vec<EdgeOf<E>>,
+    slice_buffer: Vec<SliceOf<E>>,
+    slice_buffer_edge_count: usize,
     pub(crate) worker: &'a mut GCWorker<E::VM>,
     bucket: WorkBucketStage,
 }
 
 impl<'a, E: ProcessEdgesWork> ObjectsClosure<'a, E> {
+    pub const DEFAULT_EDGES_PER_PACKET: usize = 4096;
+
     pub fn new(worker: &'a mut GCWorker<E::VM>, bucket: WorkBucketStage) -> Self {
         Self {
-            buffer: VectorQueue::new(),
+            edge_buffer: Vec::new(),
+            slice_buffer: Vec::new(),
+            slice_buffer_edge_count: 0,
             worker,
             bucket,
         }
     }
 
     fn flush(&mut self) {
-        let buf = self.buffer.take();
-        if !buf.is_empty() {
+        self.flush_edges();
+        self.flush_slices();
+    }
+
+    fn edge_buffer_is_full(&self) -> bool {
+        self.edge_buffer.len() >= E::CAPACITY
+    }
+
+    fn slice_buffer_is_full(&self) -> bool {
+        self.slice_buffer_edge_count >= E::CAPACITY
+    }
+
+    fn flush_edges(&mut self) {
+        if !self.edge_buffer.is_empty() {
+            let buf = std::mem::take(&mut self.edge_buffer);
             self.worker.add_work(
                 self.bucket,
                 E::new(buf, false, self.worker.mmtk, self.bucket),
+            );
+        }
+    }
+
+    fn flush_slices(&mut self) {
+        if !self.slice_buffer.is_empty() {
+            let buf = std::mem::take(&mut self.slice_buffer);
+            self.worker.add_work(
+                self.bucket,
+                ProcessSlicesWork::<E>::new(buf, false, self.worker.mmtk, self.bucket),
             );
         }
     }
@@ -109,10 +138,22 @@ impl<'a, E: ProcessEdgesWork> EdgeVisitor<E::VM> for ObjectsClosure<'a, E> {
                 slot.load()
             );
         }
-        self.buffer.push(slot);
-        if self.buffer.is_full() {
+        self.edge_buffer.push(slot);
+        if self.edge_buffer_is_full() {
             self.flush();
         }
+    }
+
+    fn visit_slice(&mut self, slice: SliceOf<E>) {
+        #[cfg(debug_assertions)]
+        {
+            trace!(
+                "(ObjectsClosure) Visit slice {:?}",
+                slice,
+            );
+        }
+
+        todo!("Need a way to split slice into sub-slices")
     }
 }
 

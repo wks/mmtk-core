@@ -4,7 +4,7 @@ use crate::global_state::GcStatus;
 use crate::plan::ObjectsClosure;
 use crate::plan::VectorObjectQueue;
 use crate::util::*;
-use crate::vm::edge_shape::Edge;
+use crate::vm::edge_shape::{Edge, MemorySlice};
 use crate::vm::*;
 use crate::*;
 use std::marker::PhantomData;
@@ -559,8 +559,10 @@ impl<VM: VMBinding> ProcessEdgesBase<VM> {
     }
 }
 
-/// A short-hand for `<E::VM as VMBinding>::VMEdge`.
+/// A short-hand to get the `VMEdge` type.
 pub type EdgeOf<E> = <<E as ProcessEdgesWork>::VM as VMBinding>::VMEdge;
+/// A short-hand to get the `VMMemorySlice ` type.
+pub type SliceOf<E> = <<E as ProcessEdgesWork>::VM as VMBinding>::VMMemorySlice;
 
 /// Scan & update a list of object slots
 //
@@ -1193,5 +1195,36 @@ impl<VM: VMBinding> ProcessEdgesWork for UnsupportedProcessEdges<VM> {
         _roots: bool,
     ) -> Self::ScanObjectsWorkType {
         panic!("unsupported!")
+    }
+}
+
+pub struct ProcessSlicesWork<E: ProcessEdgesWork> {
+    pew: E,
+    slices: Vec<SliceOf<E>>,
+}
+
+impl<E: ProcessEdgesWork> GCWork<E::VM> for ProcessSlicesWork<E> {
+    fn do_work(&mut self, worker: &mut GCWorker<E::VM>, _mmtk: &'static MMTK<E::VM>) {
+        self.pew.set_worker(worker); // This still uses unsafe code.  We should find an alternative solution.
+
+        for slice in self.slices.iter() {
+            for edge in slice.iter_edges() {
+                self.pew.process_edge(edge);
+            }
+        }
+    }
+}
+
+impl<E: ProcessEdgesWork> ProcessSlicesWork<E> {
+    pub fn new(
+        slices: Vec<SliceOf<E>>,
+        roots: bool,
+        mmtk: &'static MMTK<E::VM>,
+        bucket: WorkBucketStage,
+    ) -> Self {
+        // TODO: The first parameter is an empty vector, which indicates we need something more
+        // general than the current ProcessEdgesWork.
+        let pew = E::new(Vec::new(), roots, mmtk, bucket);
+        Self { pew, slices }
     }
 }
