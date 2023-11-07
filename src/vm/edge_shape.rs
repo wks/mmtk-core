@@ -128,8 +128,11 @@ fn a_simple_edge_should_have_the_same_size_as_a_pointer() {
 pub trait MemorySlice: Send + Debug + PartialEq + Eq + Clone + Hash {
     type Edge: Edge;
     type EdgeIterator: Iterator<Item = Self::Edge>;
+    type ChunkIterator: Iterator<Item = Self>;
     /// Iterate object edges within the slice. If there are non-reference values in the slice, the iterator should skip them.
     fn iter_edges(&self) -> Self::EdgeIterator;
+    /// Split the slice into smaller chunks and iterate over them.
+    fn chunks(&self, chunk_size: usize) -> Self::ChunkIterator;
     /// The object which this slice belongs to. If we know the object for the slice, we will check the object state (e.g. mature or not), rather than the slice address.
     /// Normally checking the object and checking the slice does not make a difference, as the slice is part of the object (in terms of memory range). However,
     /// if a slice is in a different location from the object, the object state and the slice can be hugely different, and providing a proper implementation
@@ -137,8 +140,10 @@ pub trait MemorySlice: Send + Debug + PartialEq + Eq + Clone + Hash {
     fn object(&self) -> Option<ObjectReference>;
     /// Start address of the memory slice
     fn start(&self) -> Address;
-    /// Size of the memory slice
+    /// Size of the memory slice in bytes
     fn bytes(&self) -> usize;
+    /// Number of elements in the memory slice
+    fn len(&self) -> usize;
     /// Memory copy support
     fn copy(src: &Self, tgt: &Self);
 }
@@ -166,12 +171,17 @@ impl Iterator for AddressRangeIterator {
 impl MemorySlice for Range<Address> {
     type Edge = Address;
     type EdgeIterator = AddressRangeIterator;
+    type ChunkIterator = UnimplementedMemorySliceChunkIterator<Self>;
 
     fn iter_edges(&self) -> Self::EdgeIterator {
         AddressRangeIterator {
             cursor: self.start,
             limit: self.end,
         }
+    }
+
+    fn chunks(&self, _chunk_size: usize) -> Self::ChunkIterator {
+        unimplemented!()
     }
 
     fn object(&self) -> Option<ObjectReference> {
@@ -184,6 +194,10 @@ impl MemorySlice for Range<Address> {
 
     fn bytes(&self) -> usize {
         self.end - self.start
+    }
+
+    fn len(&self) -> usize {
+        (self.end - self.start) >> LOG_BYTES_IN_ADDRESS
     }
 
     fn copy(src: &Self, tgt: &Self) {
@@ -219,11 +233,26 @@ impl<E: Edge> Iterator for UnimplementedMemorySliceEdgeIterator<E> {
     }
 }
 
+pub struct UnimplementedMemorySliceChunkIterator<S: MemorySlice>(PhantomData<S>);
+
+impl<S: MemorySlice> Iterator for UnimplementedMemorySliceChunkIterator<S> {
+    type Item = S;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        unimplemented!()
+    }
+}
+
 impl<E: Edge> MemorySlice for UnimplementedMemorySlice<E> {
     type Edge = E;
     type EdgeIterator = UnimplementedMemorySliceEdgeIterator<E>;
+    type ChunkIterator = UnimplementedMemorySliceChunkIterator<Self>;
 
     fn iter_edges(&self) -> Self::EdgeIterator {
+        unimplemented!()
+    }
+
+    fn chunks(&self, _chunk_size: usize) -> Self::ChunkIterator {
         unimplemented!()
     }
 
@@ -236,6 +265,10 @@ impl<E: Edge> MemorySlice for UnimplementedMemorySlice<E> {
     }
 
     fn bytes(&self) -> usize {
+        unimplemented!()
+    }
+
+    fn len(&self) -> usize {
         unimplemented!()
     }
 
