@@ -3,7 +3,7 @@ use atomic::Ordering;
 use crate::plan::PlanTraceObject;
 use crate::scheduler::{gc_work::*, GCWork, GCWorker, WorkBucketStage};
 use crate::util::ObjectReference;
-use crate::vm::edge_shape::{Edge, MemorySlice};
+use crate::vm::edge_shape::Edge;
 use crate::vm::*;
 use crate::MMTK;
 use std::marker::PhantomData;
@@ -129,12 +129,12 @@ impl<E: ProcessEdgesWork> GCWork<E::VM> for ProcessModBuf<E> {
 /// This work packet forwards and updates each entry in the recorded slices.
 pub struct ProcessRegionModBuf<E: ProcessEdgesWork> {
     /// A list of `(start_address, bytes)` tuple.
-    modbuf: Vec<<E::VM as VMBinding>::VMMemorySlice>,
+    modbuf: Vec<SliceOf<E>>,
     phantom: PhantomData<E>,
 }
 
 impl<E: ProcessEdgesWork> ProcessRegionModBuf<E> {
-    pub fn new(modbuf: Vec<<E::VM as VMBinding>::VMMemorySlice>) -> Self {
+    pub fn new(modbuf: Vec<SliceOf<E>>) -> Self {
         Self {
             modbuf,
             phantom: PhantomData,
@@ -151,19 +151,12 @@ impl<E: ProcessEdgesWork> GCWork<E::VM> for ProcessRegionModBuf<E> {
             .unwrap()
             .is_current_gc_nursery()
         {
-            // Collect all the entries in all the slices
-            let mut edges = vec![];
-            for slice in &self.modbuf {
-                for edge in slice.iter_edges() {
-                    edges.push(edge);
-                }
-            }
-            // Forward entries
-            GCWork::do_work(
-                &mut E::new(edges, false, mmtk, WorkBucketStage::Closure),
-                worker,
-                mmtk,
-            )
+            let slices = std::mem::take(&mut self.modbuf);
+
+            // Delegate the processing to a `ProcessSlicesWork` instance.
+            let mut psw =
+                ProcessSlicesWork::<E>::new(slices, false, mmtk, WorkBucketStage::Closure);
+            GCWork::do_work(&mut psw, worker, mmtk);
         }
     }
 }

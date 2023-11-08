@@ -1,6 +1,7 @@
 //! Generational read/write barrier implementations.
 
 use crate::plan::barriers::BarrierSemantics;
+use crate::plan::tracing::SliceBuffer;
 use crate::plan::PlanTraceObject;
 use crate::plan::VectorQueue;
 use crate::scheduler::WorkBucketStage;
@@ -26,7 +27,7 @@ pub struct GenObjectBarrierSemantics<
     /// Object modbuf. Contains a list of objects that may contain pointers to the nursery space.
     modbuf: VectorQueue<ObjectReference>,
     /// Array-copy modbuf. Contains a list of sub-arrays or array slices that may contain pointers to the nursery space.
-    region_modbuf: VectorQueue<VM::VMMemorySlice>,
+    region_modbuf: SliceBuffer<VM::VMMemorySlice>,
 }
 
 impl<VM: VMBinding, P: GenerationalPlanExt<VM> + PlanTraceObject<VM>>
@@ -37,7 +38,7 @@ impl<VM: VMBinding, P: GenerationalPlanExt<VM> + PlanTraceObject<VM>>
             mmtk,
             plan,
             modbuf: VectorQueue::new(),
-            region_modbuf: VectorQueue::new(),
+            region_modbuf: SliceBuffer::default(),
         }
     }
 
@@ -50,13 +51,11 @@ impl<VM: VMBinding, P: GenerationalPlanExt<VM> + PlanTraceObject<VM>>
     }
 
     fn flush_region_modbuf(&mut self) {
-        let buf = self.region_modbuf.take();
-        if !buf.is_empty() {
-            debug_assert!(!buf.is_empty());
+        self.region_modbuf.flush(|slices| {
             self.mmtk.scheduler.work_buckets[WorkBucketStage::Closure].add(ProcessRegionModBuf::<
                 GenNurseryProcessEdges<VM, P>,
-            >::new(buf));
-        }
+            >::new(slices));
+        });
     }
 }
 
@@ -95,10 +94,11 @@ impl<VM: VMBinding, P: GenerationalPlanExt<VM> + PlanTraceObject<VM>> BarrierSem
                 0,
                 "bytes should be a multiple of 32-bit words"
             );
-            self.region_modbuf.push(dst);
-            self.region_modbuf
-                .is_full()
-                .then(|| self.flush_region_modbuf());
+            self.region_modbuf.push_with_flush(dst, |slices| {
+                self.mmtk.scheduler.work_buckets[WorkBucketStage::Closure].add(ProcessRegionModBuf::<
+                    GenNurseryProcessEdges<VM, P>,
+                >::new(slices));
+            });
         }
     }
 
