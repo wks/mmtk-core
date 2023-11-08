@@ -153,7 +153,7 @@ impl<S: MemorySlice> SliceBuffer<S> {
 /// A transitive closure visitor to collect all the slots (edges) of an object.
 /// It also collect slices of slots.
 pub struct ObjectsClosure<'a, E: ProcessEdgesWork> {
-    edge_buffer: Vec<EdgeOf<E>>,
+    edge_buffer: VectorQueue<EdgeOf<E>>,
     slice_buffer: SliceBuffer<SliceOf<E>>,
     pub(crate) worker: &'a mut GCWorker<E::VM>,
     bucket: WorkBucketStage,
@@ -162,7 +162,7 @@ pub struct ObjectsClosure<'a, E: ProcessEdgesWork> {
 impl<'a, E: ProcessEdgesWork> ObjectsClosure<'a, E> {
     pub fn new(worker: &'a mut GCWorker<E::VM>, bucket: WorkBucketStage) -> Self {
         Self {
-            edge_buffer: Vec::new(),
+            edge_buffer: VectorQueue::new(),
             slice_buffer: SliceBuffer::new(E::CAPACITY),
             worker,
             bucket,
@@ -174,13 +174,9 @@ impl<'a, E: ProcessEdgesWork> ObjectsClosure<'a, E> {
         self.flush_slices();
     }
 
-    fn edge_buffer_is_full(&self) -> bool {
-        self.edge_buffer.len() >= E::CAPACITY
-    }
-
     fn flush_edges(&mut self) {
-        if !self.edge_buffer.is_empty() {
-            let buf = std::mem::take(&mut self.edge_buffer);
+        let buf = self.edge_buffer.take();
+        if !buf.is_empty() {
             self.worker.add_work(
                 self.bucket,
                 E::new(buf, false, self.worker.mmtk, self.bucket),
@@ -210,7 +206,7 @@ impl<'a, E: ProcessEdgesWork> EdgeVisitor<E::VM> for ObjectsClosure<'a, E> {
             );
         }
         self.edge_buffer.push(slot);
-        if self.edge_buffer_is_full() {
+        if self.edge_buffer.is_full() {
             self.flush();
         }
     }
