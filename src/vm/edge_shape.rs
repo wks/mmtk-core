@@ -144,6 +144,14 @@ pub trait MemorySlice: Send + Debug + PartialEq + Eq + Clone + Hash {
     fn bytes(&self) -> usize;
     /// Number of elements in the memory slice
     fn len(&self) -> usize;
+    /// Return true if the slice is empty.
+    ///
+    /// Clippy suggests a trait should have the `is_empty()` method if it also has `len()`.
+    /// But generally speaking, VM bindings should not give empty slices to MMTk core because they
+    /// contain no slots to process, and can be easily filtered out.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     /// Memory copy support
     fn copy(src: &Self, tgt: &Self);
 }
