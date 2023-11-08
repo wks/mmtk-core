@@ -1208,10 +1208,22 @@ impl<E: ProcessEdgesWork> GCWork<E::VM> for ProcessSlicesWork<E> {
         self.pew.set_worker(worker); // This still uses unsafe code.  We should find an alternative solution.
 
         for slice in self.slices.iter() {
+            trace!("Processing slice {:?}, len {}", slice, slice.len());
             for edge in slice.iter_edges() {
                 self.pew.process_edge(edge);
             }
         }
+
+        if !self.pew.nodes.is_empty() {
+            self.pew.flush();
+        }
+
+        #[cfg(feature = "sanity")]
+        // TODO: Slice roots are not supported, yet.  If needed, extend RootsWorkFactory.
+        // Then implement `cache_roots_for_sanity_gc()` for ProcessSlicesWork, too.
+        debug_assert!(!self.pew.roots);
+
+        trace!("ProcessSlicesWork End");
     }
 }
 

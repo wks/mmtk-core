@@ -4,6 +4,7 @@
 use crate::scheduler::gc_work::{EdgeOf, ProcessEdgesWork, ProcessSlicesWork, SliceOf};
 use crate::scheduler::{GCWorker, WorkBucketStage};
 use crate::util::ObjectReference;
+use crate::vm::edge_shape::MemorySlice;
 use crate::vm::EdgeVisitor;
 
 /// This trait represents an object queue to enqueue objects during tracing.
@@ -71,7 +72,8 @@ impl ObjectQueue for VectorQueue<ObjectReference> {
     }
 }
 
-/// A transitive closure visitor to collect all the edges of an object.
+/// A transitive closure visitor to collect all the slots (edges) of an object.
+/// It also collect slices of slots.
 pub struct ObjectsClosure<'a, E: ProcessEdgesWork> {
     edge_buffer: Vec<EdgeOf<E>>,
     slice_buffer: Vec<SliceOf<E>>,
@@ -102,10 +104,6 @@ impl<'a, E: ProcessEdgesWork> ObjectsClosure<'a, E> {
         self.edge_buffer.len() >= E::CAPACITY
     }
 
-    fn slice_buffer_is_full(&self) -> bool {
-        self.slice_buffer_edge_count >= E::CAPACITY
-    }
-
     fn flush_edges(&mut self) {
         if !self.edge_buffer.is_empty() {
             let buf = std::mem::take(&mut self.edge_buffer);
@@ -123,6 +121,9 @@ impl<'a, E: ProcessEdgesWork> ObjectsClosure<'a, E> {
                 self.bucket,
                 ProcessSlicesWork::<E>::new(buf, false, self.worker.mmtk, self.bucket),
             );
+            self.slice_buffer_edge_count = 0;
+        } else {
+            debug_assert_eq!(self.slice_buffer_edge_count, 0);
         }
     }
 }
@@ -148,12 +149,40 @@ impl<'a, E: ProcessEdgesWork> EdgeVisitor<E::VM> for ObjectsClosure<'a, E> {
         #[cfg(debug_assertions)]
         {
             trace!(
-                "(ObjectsClosure) Visit slice {:?}",
+                "(ObjectsClosure) Visit slice {:?}, len: {}",
                 slice,
+                slice.len()
             );
         }
 
-        todo!("Need a way to split slice into sub-slices")
+        let mut packets = vec![];
+
+        for chunk in slice.chunks(E::CAPACITY) {
+            let chunk_len = chunk.len();
+            // Note: We are willing to make work packets of sizes between `E::CAPACITY / 2` and `E::CAPACITY`
+            if chunk_len >= E::CAPACITY / 2 {
+                // If the chunk (a sub-slice) is large enough, we make a dedicated work packet for it.
+                // All chunks except the last one should be exactly `E::CAPACITY` in length.
+                // If the last chunk is still at least `E::CAPACITY / 2` in length,
+                // we consider it large enough, and create a dedicate work packet for it, too.
+                let packet =
+                    ProcessSlicesWork::<E>::new(vec![chunk], false, self.worker.mmtk, self.bucket);
+                packets.push(Box::new(packet) as _);
+            } else {
+                // If the last chunk is not large enough, we try to put it into `self.slice_buffer`.
+                if self.slice_buffer_edge_count + chunk_len >= E::CAPACITY {
+                    // If it doesn't fit, then `self.slice_buffer` must have already been at least
+                    // `E::CAPACITY / 2` in length.  We flush it.
+                    self.flush_slices();
+                }
+                self.slice_buffer.push(chunk);
+                self.slice_buffer_edge_count += chunk_len;
+            }
+        }
+
+        if !packets.is_empty() {
+            self.worker.scheduler().work_buckets[self.bucket].bulk_add(packets);
+        }
     }
 }
 
