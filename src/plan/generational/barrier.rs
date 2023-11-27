@@ -54,7 +54,9 @@ impl<VM: VMBinding, P: GenerationalPlanExt<VM> + PlanTraceObject<VM>>
         self.region_modbuf.flush(|slices| {
             self.mmtk.scheduler.work_buckets[WorkBucketStage::Closure].add(ProcessRegionModBuf::<
                 GenNurseryProcessEdges<VM, P>,
-            >::new(slices));
+            >::new(
+                slices
+            ));
         });
     }
 }
@@ -95,9 +97,9 @@ impl<VM: VMBinding, P: GenerationalPlanExt<VM> + PlanTraceObject<VM>> BarrierSem
                 "bytes should be a multiple of 32-bit words"
             );
             self.region_modbuf.push_with_flush(dst, |slices| {
-                self.mmtk.scheduler.work_buckets[WorkBucketStage::Closure].add(ProcessRegionModBuf::<
-                    GenNurseryProcessEdges<VM, P>,
-                >::new(slices));
+                self.mmtk.scheduler.work_buckets[WorkBucketStage::Closure].add(
+                    ProcessRegionModBuf::<GenNurseryProcessEdges<VM, P>>::new(slices),
+                );
             });
         }
     }

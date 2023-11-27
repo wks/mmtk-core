@@ -130,10 +130,17 @@ pub trait MemorySlice: Send + Debug + PartialEq + Eq + Clone + Hash {
     type Edge: Edge;
     /// The associate type to define how to iterate edges in a memory slice.
     type EdgeIterator: Iterator<Item = Self::Edge>;
+    /// An iterator to iterate a memory slice by chunks of a given size.
+    ///
+    /// Note: Here a "chunk" refers to a contiguous range within the slice, similar to
+    /// `std::slice::chunks`.  It is unrelated to [`crate::util::heap::chunk_map::Chunk`].
     type ChunkIterator: Iterator<Item = Self>;
     /// Iterate object edges within the slice. If there are non-reference values in the slice, the iterator should skip them.
     fn iter_edges(&self) -> Self::EdgeIterator;
     /// Split the slice into smaller chunks and iterate over them.
+    ///
+    /// Note: Here a "chunk" refers to a contiguous range within the slice, similar to
+    /// `std::slice::chunks`.  It is unrelated to [`crate::util::heap::chunk_map::Chunk`].
     fn chunks(&self, chunk_size: usize) -> Self::ChunkIterator;
     /// The object which this slice belongs to. If we know the object for the slice, we will check the object state (e.g. mature or not), rather than the slice address.
     /// Normally checking the object and checking the slice does not make a difference, as the slice is part of the object (in terms of memory range). However,
@@ -243,6 +250,7 @@ impl<E: Edge> Iterator for UnimplementedMemorySliceEdgeIterator<E> {
     }
 }
 
+/// Chunk iterator for `UnimplementedMemorySlice`.
 pub struct UnimplementedMemorySliceChunkIterator<S: MemorySlice>(PhantomData<S>);
 
 impl<S: MemorySlice> Iterator for UnimplementedMemorySliceChunkIterator<S> {
