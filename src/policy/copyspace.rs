@@ -171,17 +171,23 @@ impl<VM: VMBinding> CopySpace<VM> {
     }
 
     pub fn release(&self) {
-        for (start, size) in self.pr.iterate_allocated_regions() {
-            // Clear the forwarding bits if it is on the side.
-            if let MetadataSpec::OnSide(side_forwarding_status_table) =
-                *<VM::VMObjectModel as ObjectModel<VM>>::LOCAL_FORWARDING_BITS_SPEC
-            {
-                side_forwarding_status_table.bzero_metadata(start, size);
-            }
+        let use_side_forwarding_bits =
+            <VM::VMObjectModel as ObjectModel<VM>>::LOCAL_FORWARDING_BITS_SPEC.is_on_side();
+        let use_vo_bit = cfg!(feature = "vo_bit");
 
-            // Clear VO bits because all objects in the space are dead.
-            #[cfg(feature = "vo_bit")]
-            crate::util::metadata::vo_bit::bzero_vo_bit(start, size);
+        if use_side_forwarding_bits || use_vo_bit {
+            for (start, size) in self.pr.iterate_allocated_regions() {
+                // Clear the forwarding bits if it is on the side.
+                if let MetadataSpec::OnSide(side_forwarding_status_table) =
+                    *<VM::VMObjectModel as ObjectModel<VM>>::LOCAL_FORWARDING_BITS_SPEC
+                {
+                    side_forwarding_status_table.bzero_metadata(start, size);
+                }
+
+                // Clear VO bits because all objects in the space are dead.
+                #[cfg(feature = "vo_bit")]
+                crate::util::metadata::vo_bit::bzero_vo_bit(start, size);
+            }
         }
 
         unsafe {
