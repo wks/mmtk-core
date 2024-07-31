@@ -198,85 +198,34 @@ impl SideMetadataSpec {
             // Update bits in the same byte after the start bit (between start bit and 8)
             visit_bits(meta_start_addr, meta_start_bit, 8)
         } else {
+            // update bits in the first byte
+            let visit_start = || {
+                visit_bits(meta_start_addr, meta_start_bit, 8u8)
+            };
+
+            // update bytes in the middle
+            let visit_middle = || {
+                let start = meta_start_addr + 1usize;
+                let end = meta_end_addr;
+                if start < end {
+                    // non-empty middle range
+                    visit_bytes(start, end)
+                } else {
+                    // empty middle range
+                    false
+                }
+            };
+
+            // update bits in the last byte
+            let visit_end = || {
+                visit_bits(meta_end_addr, 0, meta_end_bit)
+            };
+
             // Update each segments.
-            // Clippy wants to move this if block up as a else-if block. But I think this is logically more clear. So disable the clippy warning.
-            #[allow(clippy::collapsible_else_if)]
             if forwards {
-                // update bits in the first byte
-                if Self::iterate_meta_bits(
-                    meta_start_addr,
-                    meta_start_bit,
-                    meta_start_addr + 1usize,
-                    0,
-                    forwards,
-                    visit_bytes,
-                    visit_bits,
-                ) {
-                    return true;
-                }
-                // update bytes in the middle
-                if Self::iterate_meta_bits(
-                    meta_start_addr + 1usize,
-                    0,
-                    meta_end_addr,
-                    0,
-                    forwards,
-                    visit_bytes,
-                    visit_bits,
-                ) {
-                    return true;
-                }
-                // update bits in the last byte
-                if Self::iterate_meta_bits(
-                    meta_end_addr,
-                    0,
-                    meta_end_addr,
-                    meta_end_bit,
-                    forwards,
-                    visit_bytes,
-                    visit_bits,
-                ) {
-                    return true;
-                }
-                false
+                visit_start() || visit_middle() || visit_end()
             } else {
-                // update bits in the last byte
-                if Self::iterate_meta_bits(
-                    meta_end_addr,
-                    0,
-                    meta_end_addr,
-                    meta_end_bit,
-                    forwards,
-                    visit_bytes,
-                    visit_bits,
-                ) {
-                    return true;
-                }
-                // update bytes in the middle
-                if Self::iterate_meta_bits(
-                    meta_start_addr + 1usize,
-                    0,
-                    meta_end_addr,
-                    0,
-                    forwards,
-                    visit_bytes,
-                    visit_bits,
-                ) {
-                    return true;
-                }
-                // update bits in the first byte
-                if Self::iterate_meta_bits(
-                    meta_start_addr,
-                    meta_start_bit,
-                    meta_start_addr + 1usize,
-                    0,
-                    forwards,
-                    visit_bytes,
-                    visit_bits,
-                ) {
-                    return true;
-                }
-                false
+                visit_end() || visit_middle() || visit_start()
             }
         }
     }
