@@ -552,8 +552,9 @@ impl<VM: VMBinding> GCWorkScheduler<VM> {
 
         #[cfg(feature = "log_rss")]
         {
+            use std::mem::MaybeUninit;
             use humansize::{format_size, BINARY};
-            let mmtk_reported: u64 = (mmtk.plan.get_reserved_pages()
+            let mmtk_reported: u64 = (mmtk.get_plan().get_reserved_pages()
                 << crate::util::constants::LOG_BYTES_IN_PAGE)
                 as u64;
             let process_rss: u64 = procfs::process::Process::myself()
@@ -567,6 +568,24 @@ impl<VM: VMBinding> GCWorkScheduler<VM> {
                 "RSS Check: MMTk reported = {}, process RSS = {}",
                 format_size(mmtk_reported, BINARY),
                 format_size(process_rss, BINARY),
+            );
+
+            let rusage = unsafe {
+                let mut rusage = MaybeUninit::<libc::rusage>::zeroed();
+                if libc::getrusage(libc::RUSAGE_SELF, rusage.as_mut_ptr()) == -1 {
+                    libc::perror(r#"Failed to get rusage"#.as_ptr() as _);
+                    libc::exit(1);
+                }
+                rusage.assume_init()
+            };
+            info!(
+                "RSS from getrusage: maxrss: {}, ixrss: {}, idrss: {}, isrss: {}, minflt: {}, majflt: {}",
+                rusage.ru_maxrss,
+                rusage.ru_ixrss,
+                rusage.ru_idrss,
+                rusage.ru_isrss,
+                rusage.ru_minflt,
+                rusage.ru_majflt,
             );
         }
 
