@@ -162,6 +162,12 @@ fn mmap_fixed(
         &|| unsafe { libc::mmap(start.to_mut_ptr(), size, prot, flags, -1, 0) },
         ptr,
     )?;
+    info!(
+        "Mapped {} - {} ({})",
+        start,
+        start + size,
+        humansize::format_size(size, humansize::FormatSizeOptions::default()),
+    );
     match strategy.huge_page {
         HugePageSupport::No => Ok(()),
         HugePageSupport::TransparentHugePages => {

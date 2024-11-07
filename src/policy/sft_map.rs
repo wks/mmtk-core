@@ -233,13 +233,21 @@ mod space_map {
             use crate::util::heap::layout::heap_parameters::MAX_SPACES;
             let table_size = Self::addr_to_index(Address::MAX) + 1;
             debug_assert!(table_size >= MAX_SPACES);
-            Self {
+            let result = Self {
                 sft: std::iter::repeat_with(SFTRefStorage::default)
                     .take(table_size)
                     .collect(),
                 space_address_start: Self::index_to_space_range(1).0, // the start of the first space
                 space_address_end: Self::index_to_space_range(MAX_SPACES - 1).1, // the end of the last space
-            }
+            };
+
+            info!(
+                "SFTSpaceMap created.  len: {}, bytes: {}",
+                result.sft.len(),
+                result.sft.len() * std::mem::size_of::<SFTRefStorage>(),
+            );
+
+            result
         }
 
         fn addr_to_index(addr: Address) -> usize {

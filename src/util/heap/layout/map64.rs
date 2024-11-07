@@ -39,6 +39,18 @@ impl Map64 {
         let mut high_water = vec![Address::ZERO; MAX_SPACES];
         let mut base_address = vec![Address::ZERO; MAX_SPACES];
 
+        info!(
+            "high_water: {} elements, {} bytes",
+            high_water.len(),
+            std::mem::size_of::<Address>() * high_water.len()
+        );
+
+        info!(
+            "base_address: {} elements, {} bytes",
+            base_address.len(),
+            std::mem::size_of::<Address>() * base_address.len()
+        );
+
         for i in 0..MAX_SPACES {
             let base = unsafe { Address::from_usize(i << vm_layout().log_space_extent) };
             high_water[i] = base;
@@ -46,6 +58,11 @@ impl Map64 {
         }
 
         let descriptor_map = vec![SpaceDescriptor::UNINITIALIZED; MAX_SPACES];
+        info!(
+            "descriptor_map: {} elements, {} bytes",
+            descriptor_map.len(),
+            std::mem::size_of::<SpaceDescriptor>() * descriptor_map.len()
+        );
 
         Self {
             inner: UnsafeCell::new(Map64Inner {

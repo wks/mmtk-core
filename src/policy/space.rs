@@ -381,8 +381,9 @@ pub(crate) fn print_vm_map<VM: VMBinding>(
     space: &dyn Space<VM>,
     out: &mut impl std::fmt::Write,
 ) -> Result<(), std::fmt::Error> {
+    let human_format = humansize::make_format(humansize::FormatSizeOptions::default());
     let common = space.common();
-    write!(out, "{} ", common.name)?;
+    write!(out, "{:16} ", common.name)?;
     if common.immortal {
         write!(out, "I")?;
     } else {
@@ -403,7 +404,7 @@ pub(crate) fn print_vm_map<VM: VMBinding>(
         )?;
         match common.vmrequest {
             VMRequest::Extent { extent, .. } => {
-                write!(out, " E {}", extent)?;
+                write!(out, " E 0x{:x} ({})", extent, human_format(extent))?;
             }
             VMRequest::Fraction { frac, .. } => {
                 write!(out, " F {}", frac)?;

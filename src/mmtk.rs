@@ -332,6 +332,13 @@ impl<VM: VMBinding> MMTK<VM> {
     /// This is usually called by the benchmark harness right after the actual benchmark.
     pub fn harness_end(&'static self) {
         self.stats.stop_all(self);
+        let mut outstr = String::new();
+        self.get_plan().for_each_space(&mut |space| {
+            crate::policy::space::print_vm_map(space, &mut outstr).unwrap();
+        });
+        eprintln!("-------------------- Begin VM maps ----------------");
+        eprint!("{}", outstr);
+        eprintln!("-------------------- End VM maps ----------------");
         self.inside_harness.store(false, Ordering::SeqCst);
         probe!(mmtk, harness_end);
     }

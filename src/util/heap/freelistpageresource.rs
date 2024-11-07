@@ -158,6 +158,14 @@ impl<VM: VMBinding> FreeListPageResource<VM> {
             space_displacement, actual_start
         );
 
+        info!(
+            "start: {}, disp: {:x} ({}), actual_start: {}",
+            start,
+            space_displacement,
+            humansize::format_size(space_displacement, humansize::FormatSizeOptions::default()),
+            actual_start
+        );
+
         let growable = cfg!(target_pointer_width = "64");
         FreeListPageResource {
             common: CommonPageResource::new(true, growable, vm_map),
