@@ -332,13 +332,100 @@ impl<VM: VMBinding> MMTK<VM> {
     /// This is usually called by the benchmark harness right after the actual benchmark.
     pub fn harness_end(&'static self) {
         self.stats.stop_all(self);
+        let hum = humansize::make_format(humansize::FormatSizeOptions::default());
         let mut outstr = String::new();
+        let mut space_name_region = vec![];
         self.get_plan().for_each_space(&mut |space| {
             crate::policy::space::print_vm_map(space, &mut outstr).unwrap();
+            space_name_region.push((
+                space.name().to_owned(),
+                space.common().start.as_usize(),
+                space.common().extent,
+            ));
         });
+        let find_space = |addr: usize| {
+            for (name, start, extent) in space_name_region.iter() {
+                if *start <= addr && addr < *start + *extent {
+                    return Some(name);
+                }
+            }
+            None
+        };
         eprintln!("-------------------- Begin VM maps ----------------");
         eprint!("{}", outstr);
         eprintln!("-------------------- End VM maps ----------------");
+        eprintln!("-------------------- Begin page maps ----------------");
+        // let entries = pagemap::pagemap(unsafe { libc::getpid() as _ }).unwrap();
+        // for (maps_entry, page_map_entries) in entries {
+        //     eprintln!("{}", maps_entry.memory_region());
+        //     for page_map_entry in page_map_entries {
+        //         eprintln!("  {}", page_map_entry);
+        //     }
+        // }
+        let pid = unsafe { libc::getpid() as _ };
+        let mut page_map = pagemap::PageMap::new(pid).unwrap();
+        let maps_entries = pagemap::maps(pid).unwrap();
+        let mut all_ranges_present_pages = 0;
+        for maps_entry in maps_entries {
+            let region = maps_entry.memory_region();
+            eprint!("{} {}", region, maps_entry.permissions());
+            if let Some(space) = find_space(region.start_address() as _) {
+                eprint!(" [space: {space}]");
+            }
+            if let Some(path) = maps_entry.path() {
+                eprint!(" [path: {path}]");
+            }
+            eprintln!("");
+            if maps_entry.permissions().is_empty() {
+                continue;
+            }
+            if region.start_address() >= 0x8000_0000_0000_0000u64 {
+                continue;
+            }
+            let pmes = page_map.pagemap_region(&region).unwrap();
+            let mut print_count = 0;
+            let bits = pmes
+                .into_iter()
+                .map(|pme| {
+                    if print_count < 3 {
+                        eprintln!("  {}", pme);
+                        print_count += 1;
+                    } else if print_count == 3 {
+                        eprintln!("  [ and more ]");
+                        print_count += 1;
+                    }
+                    pme.present()
+                })
+                .collect::<Vec<_>>();
+            let total_present_pages = bits.iter().copied().filter(|x| *x).count();
+            let total_present_bytes = total_present_pages * 4096;
+            eprintln!(
+                "  Total present: {} pages, {} bytes ({})",
+                total_present_pages,
+                total_present_bytes,
+                hum(total_present_bytes)
+            );
+            for row in bits.chunks(128) {
+                let line = row
+                    .into_iter()
+                    .map(|b| match b {
+                        true => 'I',
+                        false => '.',
+                    })
+                    .collect::<String>();
+                eprintln!("  {line}");
+            }
+            all_ranges_present_pages += total_present_pages;
+        }
+        let all_ranges_present_bytes = all_ranges_present_pages * 4096;
+        eprintln!(
+            "In all ranges: {} pages, {} bytes ({})",
+            all_ranges_present_pages,
+            all_ranges_present_bytes,
+            hum(all_ranges_present_bytes)
+        );
+
+        eprintln!("-------------------- End page maps ----------------");
         self.inside_harness.store(false, Ordering::SeqCst);
         probe!(mmtk, harness_end);
     }

@@ -168,6 +168,9 @@ fn mmap_fixed(
         start + size,
         humansize::format_size(size, humansize::FormatSizeOptions::default()),
     );
+    // if start.as_usize() == 0xc0803c00000 {
+    //     panic!();
+    // }
     match strategy.huge_page {
         HugePageSupport::No => Ok(()),
         HugePageSupport::TransparentHugePages => {

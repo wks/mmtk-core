@@ -54,6 +54,7 @@ sysinfo = "0.30.9"
 
 humansize = { version = "2.1.3", optional = true }
 procfs = { version = "0.15.1", optional = true }
+pagemap = { version = "0.1.0", optional = true }
 
 [dev-dependencies]
 paste = "1.0.8"
@@ -181,7 +182,7 @@ bpftrace_workaround = []
 
 # Log rss at the end of each GC. This can be used to debug our page accounting.
 # Rss is printed through normal logging. Make sure logging is turned (info-levle) when this is used.
-log_rss = ["dep:humansize", "dep:procfs"]
+log_rss = ["dep:humansize", "dep:procfs", "dep:pagemap"]
 
 # Do not modify the following line - ci-common.sh matches it
 # -- Mutally exclusive features --
