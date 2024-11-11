@@ -1463,6 +1463,18 @@ impl SideMetadataContext {
         Ok(())
     }
 
+    pub fn debug_iter_metadata_ranges(
+        &self,
+        start: Address,
+        size: usize,
+        mut visitor: impl FnMut(&SideMetadataSpec, Address, usize),
+    ) {
+        for spec in self.global.iter().chain(self.local.iter()) {
+            let (mmap_start, mmap_size) = get_mmap_range_for_contiguous_metadata(start, size, spec);
+            visitor(spec, mmap_start, mmap_size);
+        }
+    }
+
     /// Unmap the corresponding metadata space or panic.
     ///
     /// Note-1: This function is only used for test and debug right now.

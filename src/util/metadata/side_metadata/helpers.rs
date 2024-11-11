@@ -118,6 +118,20 @@ pub(crate) fn ensure_munmap_contiguous_metadata_space(
     mmap_size
 }
 
+pub(super) fn get_mmap_range_for_contiguous_metadata(
+    start: Address,
+    size: usize,
+    spec: &SideMetadataSpec,
+) -> (Address, usize) {
+    // nearest page-aligned starting address
+    let metadata_start = address_to_meta_address(spec, start);
+    let mmap_start = metadata_start.align_down(BYTES_IN_PAGE);
+    // nearest page-aligned ending address
+    let metadata_size = (size + ((1 << addr_rshift(spec)) - 1)) >> addr_rshift(spec);
+    let mmap_size = (metadata_start + metadata_size).align_up(BYTES_IN_PAGE) - mmap_start;
+    (mmap_start, mmap_size)
+}
+
 /// Tries to mmap the metadata space (`spec`) for the specified data address range (`start` and `size`).
 /// Setting `no_reserve` to true means the function will only map address range, without reserving swap-space/physical memory.
 /// Returns the size in bytes that gets mmapped in the function if success.
@@ -130,12 +144,7 @@ pub(super) fn try_mmap_contiguous_metadata_space(
     debug_assert!(start.is_aligned_to(BYTES_IN_PAGE));
     debug_assert!(size % BYTES_IN_PAGE == 0);
 
-    // nearest page-aligned starting address
-    let metadata_start = address_to_meta_address(spec, start);
-    let mmap_start = metadata_start.align_down(BYTES_IN_PAGE);
-    // nearest page-aligned ending address
-    let metadata_size = (size + ((1 << addr_rshift(spec)) - 1)) >> addr_rshift(spec);
-    let mmap_size = (metadata_start + metadata_size).align_up(BYTES_IN_PAGE) - mmap_start;
+    let (mmap_start, mmap_size) = get_mmap_range_for_contiguous_metadata(start, size, spec);
     if mmap_size > 0 {
         if !no_reserve {
             MMAPPER.ensure_mapped(

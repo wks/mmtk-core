@@ -333,16 +333,37 @@ impl<VM: VMBinding> MMTK<VM> {
     pub fn harness_end(&'static self) {
         self.stats.stop_all(self);
         let hum = humansize::make_format(humansize::FormatSizeOptions::default());
-        let mut outstr = String::new();
         let mut space_name_region = vec![];
+        let mut meta_name_region = vec![];
+
+        eprintln!("-------------------- Begin VM maps ----------------");
         self.get_plan().for_each_space(&mut |space| {
+            let mut outstr = String::new();
             crate::policy::space::print_vm_map(space, &mut outstr).unwrap();
-            space_name_region.push((
-                space.name().to_owned(),
-                space.common().start.as_usize(),
-                space.common().extent,
-            ));
+            eprint!("{outstr}");
+
+            let space_name = space.name();
+            let space_start = space.common().start;
+            let space_size = space.common().extent;
+            space_name_region.push((space_name.to_owned(), space_start.as_usize(), space_size));
+
+            space.common().metadata.debug_iter_metadata_ranges(
+                space_start,
+                space_size,
+                |meta, meta_start, meta_size| {
+                    let meta_end = meta_start + meta_size;
+                    eprintln!("  sidemeta: {:32}: {}->{}", meta.name, meta_start, meta_end);
+                    meta_name_region.push((
+                        space_name.to_owned(),
+                        meta.name.to_owned(),
+                        meta_start.as_usize(),
+                        meta_size,
+                    ));
+                },
+            );
         });
+        eprintln!("-------------------- End VM maps ----------------");
+
         let find_space = |addr: usize| {
             for (name, start, extent) in space_name_region.iter() {
                 if *start <= addr && addr < *start + *extent {
@@ -351,9 +372,15 @@ impl<VM: VMBinding> MMTK<VM> {
             }
             None
         };
-        eprintln!("-------------------- Begin VM maps ----------------");
-        eprint!("{}", outstr);
-        eprintln!("-------------------- End VM maps ----------------");
+        let find_meta = |addr: usize| {
+            for (space_name, meta_name, start, extent) in meta_name_region.iter() {
+                if *start <= addr && addr < *start + *extent {
+                    return Some((space_name, meta_name));
+                }
+            }
+            None
+        };
+
         eprintln!("-------------------- Begin page maps ----------------");
         // let entries = pagemap::pagemap(unsafe { libc::getpid() as _ }).unwrap();
         // for (maps_entry, page_map_entries) in entries {
@@ -371,6 +398,9 @@ impl<VM: VMBinding> MMTK<VM> {
             eprint!("{} {}", region, maps_entry.permissions());
             if let Some(space) = find_space(region.start_address() as _) {
                 eprint!(" [space: {space}]");
+            }
+            if let Some((space, meta)) = find_meta(region.start_address() as _) {
+                eprint!(" [sidemeta: {space}:{meta}]");
             }
             if let Some(path) = maps_entry.path() {
                 eprint!(" [path: {path}]");
