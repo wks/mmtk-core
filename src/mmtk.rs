@@ -10,11 +10,14 @@ use crate::scheduler::GCWorkScheduler;
 use crate::util::address::ObjectReference;
 #[cfg(feature = "analysis")]
 use crate::util::analysis::AnalysisManager;
+use crate::util::constants::BYTES_IN_PAGE;
 use crate::util::finalizable_processor::FinalizableProcessor;
 use crate::util::heap::gc_trigger::GCTrigger;
 use crate::util::heap::layout::vm_layout::VMLayout;
 use crate::util::heap::layout::{self, Mmapper, VMMap};
+use crate::util::heap::vm_layout::BYTES_IN_CHUNK;
 use crate::util::heap::HeapMeta;
+use crate::util::linear_scan::Region;
 use crate::util::opaque_pointer::*;
 use crate::util::options::Options;
 use crate::util::reference_processor::ReferenceProcessors;
@@ -429,23 +432,57 @@ impl<VM: VMBinding> MMTK<VM> {
                 .collect::<Vec<_>>();
             let total_present_pages = bits.iter().copied().filter(|x| *x).count();
             let total_present_bytes = total_present_pages * 4096;
+            all_ranges_present_pages += total_present_pages;
             eprintln!(
                 "  Total present: {} pages, {} bytes ({})",
                 total_present_pages,
                 total_present_bytes,
                 hum(total_present_bytes)
             );
-            for row in bits.chunks(128) {
-                let line = row
-                    .into_iter()
-                    .map(|b| match b {
-                        true => 'I',
-                        false => '.',
-                    })
-                    .collect::<String>();
+
+            let row_size = 128usize; // pages
+            let row_start_address = crate::util::conversions::raw_align_down(
+                region.start_address() as usize,
+                row_size * BYTES_IN_PAGE,
+            );
+            let padding_pages = region.start_address() as usize / BYTES_IN_PAGE % row_size;
+            let padding_chars_iterator = itertools::repeat_n(' ', padding_pages);
+            let bits_chars_iterator = bits.iter().map(|b| match b {
+                true => 'I',
+                false => '.',
+            });
+
+            let mut printed_lines = 0;
+            let mut line = String::new();
+            let mut line_chars = 0;
+            for (idx, ch) in padding_chars_iterator
+                .chain(bits_chars_iterator)
+                .enumerate()
+            {
+                let cur_addr = row_start_address + idx * BYTES_IN_PAGE;
+                if line_chars > 0 {
+                    if cur_addr % crate::policy::immix::block::Block::BYTES == 0 {
+                        // Crossing block boundary with a text line.
+                        line.push(' ');
+                    }
+                } else if printed_lines > 0 {
+                    if cur_addr % BYTES_IN_CHUNK == 0 {
+                        // Crossing chunk boundary.
+                        eprintln!("");
+                    }
+                }
+                line.push(ch);
+                line_chars += 1;
+                if line_chars == row_size {
+                    eprintln!("  {line}");
+                    line.clear();
+                    line_chars = 0;
+                    printed_lines += 1;
+                }
+            }
+            if line_chars > 0 {
                 eprintln!("  {line}");
             }
-            all_ranges_present_pages += total_present_pages;
         }
         let all_ranges_present_bytes = all_ranges_present_pages * 4096;
         eprintln!(
