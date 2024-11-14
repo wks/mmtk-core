@@ -52,9 +52,10 @@ strum = "0.26.2"
 strum_macros = "0.26.2"
 sysinfo = "0.30.9"
 
-humansize = { version = "2.1.3", optional = true }
-procfs = { version = "0.15.1", optional = true }
-pagemap = { version = "0.1.0", optional = true }
+humansize = { version = "2.1.3", optional = false }
+procfs = { version = "0.15.1", optional = false }
+pagemap = { version = "0.1.0", optional = false }
+json = "0.12.4"
 
 [dev-dependencies]
 paste = "1.0.8"
@@ -182,7 +183,8 @@ bpftrace_workaround = []
 
 # Log rss at the end of each GC. This can be used to debug our page accounting.
 # Rss is printed through normal logging. Make sure logging is turned (info-levle) when this is used.
-log_rss = ["dep:humansize", "dep:procfs", "dep:pagemap"]
+#log_rss = ["dep:humansize", "dep:procfs", "dep:pagemap"]
+log_rss = []
 
 # Do not modify the following line - ci-common.sh matches it
 # -- Mutally exclusive features --

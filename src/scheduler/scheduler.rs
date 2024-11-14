@@ -550,7 +550,7 @@ impl<VM: VMBinding> GCWorkScheduler<VM> {
             elapsed.as_millis()
         );
 
-        #[cfg(feature = "log_rss")]
+        //#[cfg(feature = "log_rss")]
         {
             use std::mem::MaybeUninit;
             use humansize::{format_size, BINARY};
