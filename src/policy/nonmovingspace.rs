@@ -10,7 +10,7 @@ use super::space::{PlanCreateSpaceArgs, Space};
 /// A space implements this trait if it can be used as the non-moving space.
 ///
 /// Methods of this trait should be called inste
-pub trait NonMovingSpace<VM: VMBinding>: Space<VM> {
+pub(crate) trait NonMovingSpace<VM: VMBinding>: Space<VM> {
     /// Call this instead of `new` to create the space as the non-moving space.
     fn new_nonmoving_space(args: PlanCreateSpaceArgs<VM>) -> Self;
     /// Call this instead of `prepare` when used as the non-moving space.
