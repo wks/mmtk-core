@@ -3,7 +3,12 @@
 //! We can use Cargo features to choose one of `ImmixSpace` (default), `ImmortalSpace` and
 //! `MarkSweepSpace` as the non-moving space.
 
-use crate::{util::VMWorkerThread, vm::VMBinding, AllocationSemantics, Mutator};
+use crate::{
+    plan::ReservedAllocators,
+    util::{alloc::AllocatorSelector, VMWorkerThread},
+    vm::VMBinding,
+    AllocationSemantics, Mutator,
+};
 
 use super::space::{PlanCreateSpaceArgs, Space};
 
@@ -21,6 +26,8 @@ pub(crate) trait NonMovingSpace<VM: VMBinding>: Space<VM> {
     fn end_of_gc_nonmoving_space(&mut self);
     /// Call this in `common_release_func` when using this space as the non-moving space.
     fn release_mutator_nonmoving_space(mutator: &mut Mutator<VM>, tls: VMWorkerThread);
+    /// Call this to reserve allocator in `create_space_mapping`.
+    fn reserve_allocator(reserved: &mut ReservedAllocators) -> AllocatorSelector;
 }
 
 impl<VM: VMBinding> NonMovingSpace<VM> for crate::policy::immortalspace::ImmortalSpace<VM> {
@@ -42,6 +49,10 @@ impl<VM: VMBinding> NonMovingSpace<VM> for crate::policy::immortalspace::Immorta
 
     fn release_mutator_nonmoving_space(_mutator: &mut Mutator<VM>, _tls: VMWorkerThread) {
         // Do nothing
+    }
+
+    fn reserve_allocator(reserved: &mut ReservedAllocators) -> AllocatorSelector {
+        reserved.add_bump_pointer_allocator()
     }
 }
 
@@ -74,6 +85,10 @@ impl<VM: VMBinding> NonMovingSpace<VM>
         .downcast_mut::<FreeListAllocator<VM>>()
         .unwrap()
         .release();
+    }
+
+    fn reserve_allocator(reserved: &mut ReservedAllocators) -> AllocatorSelector {
+        reserved.add_malloc_allocator()
     }
 }
 
@@ -112,6 +127,10 @@ impl<VM: VMBinding> NonMovingSpace<VM> for crate::policy::immix::ImmixSpace<VM> 
         .downcast_mut::<ImmixAllocator<VM>>()
         .unwrap()
         .reset();
+    }
+
+    fn reserve_allocator(reserved: &mut ReservedAllocators) -> AllocatorSelector {
+        reserved.add_immix_allocator()
     }
 }
 

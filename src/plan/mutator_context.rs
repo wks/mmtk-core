@@ -439,7 +439,7 @@ impl ReservedAllocators {
 
     // We may add more allocators from common/base plan after reserved allocators.
 
-    fn add_bump_pointer_allocator(&mut self) -> AllocatorSelector {
+    pub(crate) fn add_bump_pointer_allocator(&mut self) -> AllocatorSelector {
         let selector = AllocatorSelector::BumpPointer(self.n_bump_pointer);
         self.n_bump_pointer += 1;
         selector
@@ -450,13 +450,13 @@ impl ReservedAllocators {
         selector
     }
     #[allow(dead_code)]
-    fn add_malloc_allocator(&mut self) -> AllocatorSelector {
+    pub(crate) fn add_malloc_allocator(&mut self) -> AllocatorSelector {
         let selector = AllocatorSelector::Malloc(self.n_malloc);
         self.n_malloc += 1;
         selector
     }
     #[allow(dead_code)]
-    fn add_immix_allocator(&mut self) -> AllocatorSelector {
+    pub(crate) fn add_immix_allocator(&mut self) -> AllocatorSelector {
         let selector = AllocatorSelector::Immix(self.n_immix);
         self.n_immix += 1;
         selector
@@ -506,20 +506,11 @@ pub(crate) fn create_allocator_mapping(
     // spaces in common plan
 
     if include_common_plan {
+        // TODO: This file currently contains information about all spaces (i.e. what allocator each space uses).
+        // We really should let each space reserve its appropriate allocator.
         map[AllocationSemantics::Immortal] = reserved.add_bump_pointer_allocator();
         map[AllocationSemantics::Los] = reserved.add_large_object_allocator();
-        map[AllocationSemantics::NonMoving] = if cfg!(not(any(
-            feature = "immortal_as_nonmoving",
-            feature = "marksweep_as_nonmoving"
-        ))) {
-            reserved.add_immix_allocator()
-        } else if cfg!(feature = "marksweep_as_nonmoving") {
-            reserved.add_free_list_allocator()
-        } else if cfg!(feature = "immortal_as_nonmoving") {
-            reserved.add_bump_pointer_allocator()
-        } else {
-            panic!("No policy selected for nonmoving space")
-        };
+        map[AllocationSemantics::NonMoving] = ChosenNonMovingSpace::reserve_allocator(&mut reserved);
     }
 
     reserved.validate();

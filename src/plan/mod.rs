@@ -31,6 +31,7 @@ pub(crate) use global::PlanTraceObject;
 mod mutator_context;
 pub use mutator_context::Mutator;
 pub use mutator_context::MutatorContext;
+pub(crate) use mutator_context::ReservedAllocators;
 
 mod plan_constraints;
 pub use plan_constraints::PlanConstraints;
