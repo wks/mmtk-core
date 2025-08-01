@@ -7,35 +7,34 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 struct BucketQueue<VM: VMBinding> {
-    // queue: Injector<Box<dyn GCWork<VM>>>,
-    queue: std::sync::RwLock<Injector<Box<dyn GCWork<VM>>>>,
+    queue: Injector<Box<dyn GCWork<VM>>>,
 }
 
 impl<VM: VMBinding> BucketQueue<VM> {
     fn new() -> Self {
         Self {
-            queue: std::sync::RwLock::new(Injector::new()),
+            queue: Injector::new(),
         }
     }
 
     fn is_empty(&self) -> bool {
-        self.queue.read().unwrap().is_empty()
+        self.queue.is_empty()
     }
 
     fn steal_batch_and_pop(
         &self,
         dest: &Worker<Box<dyn GCWork<VM>>>,
     ) -> Steal<Box<dyn GCWork<VM>>> {
-        self.queue.read().unwrap().steal_batch_and_pop(dest)
+        self.queue.steal_batch_and_pop(dest)
     }
 
     fn push(&self, w: Box<dyn GCWork<VM>>) {
-        self.queue.read().unwrap().push(w);
+        self.queue.push(w);
     }
 
     fn push_all(&self, ws: Vec<Box<dyn GCWork<VM>>>) {
         for w in ws {
-            self.queue.read().unwrap().push(w);
+            self.queue.push(w);
         }
     }
 }
@@ -96,28 +95,6 @@ impl<VM: VMBinding> WorkBucket<VM> {
 
     pub fn enable_prioritized_queue(&mut self) {
         self.prioritized_queue = Some(BucketQueue::new());
-    }
-
-    pub fn replace_queue(
-        &self,
-        new_queue: Injector<Box<dyn GCWork<VM>>>,
-    ) -> Injector<Box<dyn GCWork<VM>>> {
-        let mut queue = self.queue.queue.write().unwrap();
-        std::mem::replace::<Injector<Box<dyn GCWork<VM>>>>(&mut queue, new_queue)
-    }
-
-    pub fn replace_queue_prioritized(
-        &self,
-        new_queue: Injector<Box<dyn GCWork<VM>>>,
-    ) -> Injector<Box<dyn GCWork<VM>>> {
-        let mut queue = self
-            .prioritized_queue
-            .as_ref()
-            .unwrap()
-            .queue
-            .write()
-            .unwrap();
-        std::mem::replace::<Injector<Box<dyn GCWork<VM>>>>(&mut queue, new_queue)
     }
 
     fn notify_one_worker(&self) {
@@ -216,6 +193,24 @@ impl<VM: VMBinding> WorkBucket<VM> {
         self.queue.push_all(work_vec);
         if self.is_activated() {
             self.notify_all_workers();
+        }
+    }
+
+    /// Add multiple packets
+    pub fn bulk_add_no_notify(&self, work_vec: Vec<Box<dyn GCWork<VM>>>) {
+        if work_vec.is_empty() {
+            return;
+        }
+        self.queue.push_all(work_vec);
+    }
+
+    /// Add multiple packets
+    pub fn bulk_add_prioritized_no_notify(&self, work_vec: Vec<Box<dyn GCWork<VM>>>) {
+        if work_vec.is_empty() {
+            return;
+        }
+        if let Some(queue) = self.prioritized_queue.as_ref() {
+            queue.push_all(work_vec);
         }
     }
 

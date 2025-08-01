@@ -14,13 +14,13 @@ use crate::util::options::AffinityKind;
 use crate::vm::Collection;
 use crate::vm::VMBinding;
 use crate::Plan;
-use crossbeam::deque::{Injector, Steal};
+use crossbeam::deque::Steal;
 use enum_map::{Enum, EnumMap};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-type PostponeQueue<VM> = Injector<Box<dyn GCWork<VM>>>;
+type PostponeQueue<VM> = Vec<Box<dyn GCWork<VM>>>;
 
 pub struct GCWorkScheduler<VM: VMBinding> {
     /// Work buckets
@@ -32,10 +32,8 @@ pub struct GCWorkScheduler<VM: VMBinding> {
     /// How to assign the affinity of each GC thread. Specified by the user.
     affinity: AffinityKind,
 
-    pub(super) postponed_concurrent_work:
-        spin::RwLock<crossbeam::deque::Injector<Box<dyn GCWork<VM>>>>,
-    pub(super) postponed_concurrent_work_prioritized:
-        spin::RwLock<crossbeam::deque::Injector<Box<dyn GCWork<VM>>>>,
+    pub(super) postponed_concurrent_work: std::sync::RwLock<PostponeQueue<VM>>,
+    pub(super) postponed_concurrent_work_prioritized: std::sync::RwLock<PostponeQueue<VM>>,
     in_gc_pause: std::sync::atomic::AtomicBool,
 }
 
@@ -85,42 +83,46 @@ impl<VM: VMBinding> GCWorkScheduler<VM> {
             worker_group,
             worker_monitor,
             affinity,
-            postponed_concurrent_work: spin::RwLock::new(crossbeam::deque::Injector::new()),
-            postponed_concurrent_work_prioritized: spin::RwLock::new(
-                crossbeam::deque::Injector::new(),
-            ),
+            postponed_concurrent_work: Default::default(),
+            postponed_concurrent_work_prioritized: Default::default(),
             in_gc_pause: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
     pub fn postpone(&self, w: impl GCWork<VM>) {
-        self.postponed_concurrent_work.read().push(Box::new(w))
+        self.postponed_concurrent_work
+            .write()
+            .unwrap()
+            .push(Box::new(w))
     }
 
     pub fn postpone_prioritized(&self, w: impl GCWork<VM>) {
         self.postponed_concurrent_work_prioritized
-            .read()
+            .write()
+            .unwrap()
             .push(Box::new(w))
     }
 
     pub fn postpone_dyn(&self, w: Box<dyn GCWork<VM>>) {
-        self.postponed_concurrent_work.read().push(w)
+        self.postponed_concurrent_work.write().unwrap().push(w)
     }
 
     pub fn postpone_dyn_prioritized(&self, w: Box<dyn GCWork<VM>>) {
-        self.postponed_concurrent_work_prioritized.read().push(w)
+        self.postponed_concurrent_work_prioritized
+            .write()
+            .unwrap()
+            .push(w)
     }
 
-    pub fn postpone_all(&self, ws: Vec<Box<dyn GCWork<VM>>>) {
-        let postponed_concurrent_work = self.postponed_concurrent_work.read();
-        ws.into_iter()
-            .for_each(|w| postponed_concurrent_work.push(w));
+    pub fn postpone_all(&self, mut ws: Vec<Box<dyn GCWork<VM>>>) {
+        let mut postponed_concurrent_work = self.postponed_concurrent_work.write().unwrap();
+        postponed_concurrent_work.append(&mut ws);
     }
 
-    pub fn postpone_all_prioritized(&self, ws: Vec<Box<dyn GCWork<VM>>>) {
-        let postponed_concurrent_work = self.postponed_concurrent_work_prioritized.read();
-        ws.into_iter()
-            .for_each(|w| postponed_concurrent_work.push(w));
+    pub fn postpone_all_prioritized(&self, mut ws: Vec<Box<dyn GCWork<VM>>>) {
+        let mut postponed_concurrent_work =
+            self.postponed_concurrent_work_prioritized.write().unwrap();
+        postponed_concurrent_work.append(&mut ws);
     }
 
     pub fn num_workers(&self) -> usize {
@@ -694,8 +696,9 @@ impl<VM: VMBinding> GCWorkScheduler<VM> {
     }
 
     fn schedule_postponed_concurrent_packets(&self) -> (PostponeQueue<VM>, PostponeQueue<VM>) {
-        let queue = std::mem::take(&mut *self.postponed_concurrent_work.write());
-        let pqueue = std::mem::take(&mut *self.postponed_concurrent_work_prioritized.write());
+        let queue = std::mem::take(&mut *self.postponed_concurrent_work.write().unwrap());
+        let pqueue =
+            std::mem::take(&mut *self.postponed_concurrent_work_prioritized.write().unwrap());
         (queue, pqueue)
     }
 
@@ -706,16 +709,15 @@ impl<VM: VMBinding> GCWorkScheduler<VM> {
     ) -> bool {
         // crate::MOVE_CONCURRENT_MARKING_TO_STW.store(false, Ordering::SeqCst);
         // crate::PAUSE_CONCURRENT_MARKING.store(false, Ordering::SeqCst);
+        debug_assert!(self.work_buckets[WorkBucketStage::Unconstrained].is_empty());
         let mut concurrent_work_scheduled = false;
         if !queue.is_empty() {
-            let old_queue = self.work_buckets[WorkBucketStage::Unconstrained].replace_queue(queue);
-            debug_assert!(old_queue.is_empty());
+            self.work_buckets[WorkBucketStage::Unconstrained].bulk_add_no_notify(queue);
             concurrent_work_scheduled = true;
         }
         if !pqueue.is_empty() {
-            let old_queue =
-                self.work_buckets[WorkBucketStage::Unconstrained].replace_queue_prioritized(pqueue);
-            debug_assert!(old_queue.is_empty());
+            self.work_buckets[WorkBucketStage::Unconstrained]
+                .bulk_add_prioritized_no_notify(pqueue);
             concurrent_work_scheduled = true;
         }
         concurrent_work_scheduled
