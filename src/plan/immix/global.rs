@@ -4,6 +4,7 @@ use crate::plan::global::BasePlan;
 use crate::plan::global::CommonPlan;
 use crate::plan::global::CreateGeneralPlanArgs;
 use crate::plan::global::CreateSpecificPlanArgs;
+use crate::plan::tracing::gc_work::schedule_common_work;
 use crate::plan::AllocationSemantics;
 use crate::plan::Plan;
 use crate::plan::PlanConstraints;
@@ -190,9 +191,9 @@ impl<VM: VMBinding> Immix<VM> {
         );
 
         if in_defrag {
-            scheduler.schedule_common_work::<DefragContext>(plan);
+            schedule_common_work::<DefragContext>(scheduler, plan);
         } else {
-            scheduler.schedule_common_work::<FastContext>(plan);
+            schedule_common_work::<FastContext>(scheduler, plan);
         }
     }
 

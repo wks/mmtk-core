@@ -3,6 +3,7 @@ use crate::plan::global::CommonPlan;
 use crate::plan::global::CreateGeneralPlanArgs;
 use crate::plan::global::CreateSpecificPlanArgs;
 use crate::plan::immix;
+use crate::plan::tracing::gc_work::schedule_common_work;
 use crate::plan::PlanConstraints;
 use crate::policy::gc_work::TraceKind;
 use crate::policy::gc_work::TRACE_KIND_TRANSITIVE_PIN;
@@ -95,7 +96,7 @@ impl<VM: VMBinding> Plan for StickyImmix<VM> {
         if !is_full_heap {
             info!("Nursery GC");
             // nursery GC -- we schedule it
-            scheduler.schedule_common_work::<StickyImmixNurseryGCWorkContext<VM>>(self);
+            schedule_common_work::<StickyImmixNurseryGCWorkContext<VM>>(scheduler, self);
         } else {
             info!("Full heap GC");
             use crate::plan::immix::Immix;

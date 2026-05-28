@@ -6,6 +6,7 @@ use crate::plan::global::BasePlan;
 use crate::plan::global::CommonPlan;
 use crate::plan::global::CreateGeneralPlanArgs;
 use crate::plan::global::CreateSpecificPlanArgs;
+use crate::plan::tracing::gc_work::schedule_common_work;
 use crate::plan::AllocationSemantics;
 use crate::plan::Plan;
 use crate::plan::PlanConstraints;
@@ -107,7 +108,7 @@ impl<VM: VMBinding> Plan for GenImmix<VM> {
 
         if !is_full_heap {
             info!("Nursery GC");
-            scheduler.schedule_common_work::<GenImmixNurseryGCWorkContext<VM>>(self);
+            schedule_common_work::<GenImmixNurseryGCWorkContext<VM>>(scheduler, self);
         } else {
             info!("Full heap GC");
             crate::plan::immix::Immix::schedule_immix_full_heap_collection::<

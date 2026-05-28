@@ -9,9 +9,6 @@ use super::worker_monitor::{LastParkedResult, WorkerMonitor};
 use super::*;
 use crate::global_state::GcStatus;
 use crate::mmtk::MMTK;
-use crate::plan::tracing::gc_work::weakref::{
-    VMForwardWeakRefs, VMPostForwarding, VMProcessWeakRefs,
-};
 use crate::util::opaque_pointer::*;
 use crate::util::options::AffinityKind;
 use crate::vm::Collection;
@@ -136,100 +133,6 @@ impl<VM: VMBinding> GCWorkScheduler<VM> {
         // We are still holding the mutex `WorkerMonitor::sync`.  Do not notify now.
         probe!(mmtk, add_schedule_collection_packet);
         self.work_buckets[WorkBucketStage::Unconstrained].add_no_notify(ScheduleCollection);
-    }
-
-    /// Schedule all the common work packets
-    pub fn schedule_common_work<C: GCWorkContext<VM = VM>>(&self, plan: &'static C::PlanType) {
-        use crate::scheduler::gc_work::*;
-        // Stop & scan mutators (mutator scanning can happen before STW)
-        self.work_buckets[WorkBucketStage::Unconstrained].add(StopMutators::<C>::new());
-
-        // Prepare global/collectors/mutators
-        self.work_buckets[WorkBucketStage::Prepare].add(Prepare::<C>::new(plan));
-
-        // Release global/collectors/mutators
-        self.work_buckets[WorkBucketStage::Release].add(Release::<C>::new(plan));
-
-        // Analysis GC work
-        #[cfg(feature = "analysis")]
-        {
-            use crate::util::analysis::GcHookWork;
-            self.work_buckets[WorkBucketStage::Unconstrained].add(GcHookWork);
-        }
-
-        // Sanity
-        #[cfg(feature = "sanity")]
-        {
-            use crate::util::sanity::sanity_checker::ScheduleSanityGC;
-            self.work_buckets[WorkBucketStage::Final]
-                .add(ScheduleSanityGC::<C::PlanType>::new(plan));
-        }
-
-        // Reference processing
-        if !*plan.base().options.no_reference_types {
-            use crate::util::reference_processor::{
-                PhantomRefProcessing, SoftRefProcessing, WeakRefProcessing,
-            };
-            self.work_buckets[WorkBucketStage::SoftRefClosure]
-                .add(SoftRefProcessing::<C::DefaultTrace>::new());
-            self.work_buckets[WorkBucketStage::WeakRefClosure].add(WeakRefProcessing::<VM>::new());
-            self.work_buckets[WorkBucketStage::PhantomRefClosure]
-                .add(PhantomRefProcessing::<VM>::new());
-
-            use crate::util::reference_processor::RefForwarding;
-            if plan.constraints().needs_forward_after_liveness {
-                self.work_buckets[WorkBucketStage::RefForwarding]
-                    .add(RefForwarding::<C::DefaultTrace>::new());
-            }
-
-            use crate::util::reference_processor::RefEnqueue;
-            self.work_buckets[WorkBucketStage::Release].add(RefEnqueue::<VM>::new());
-        }
-
-        // Finalization
-        if !*plan.base().options.no_finalizer {
-            use crate::util::finalizable_processor::{Finalization, ForwardFinalization};
-            // finalization
-            self.work_buckets[WorkBucketStage::FinalRefClosure]
-                .add(Finalization::<C::DefaultTrace>::new());
-            // forward refs
-            if plan.constraints().needs_forward_after_liveness {
-                self.work_buckets[WorkBucketStage::FinalizableForwarding]
-                    .add(ForwardFinalization::<C::DefaultTrace>::new());
-            }
-        }
-
-        // We add the VM-specific weak ref processing work regardless of MMTK-side options,
-        // including Options::no_finalizer and Options::no_reference_types.
-        //
-        // VMs need weak reference handling to function properly.  The VM may treat weak references
-        // as strong references, but it is not appropriate to simply disable weak reference
-        // handling from MMTk's side.  The VM, however, may choose to do nothing in
-        // `Collection::process_weak_refs` if appropriate.
-        //
-        // It is also not sound for MMTk core to turn off weak
-        // reference processing or finalization alone, because (1) not all VMs have the notion of
-        // weak references or finalizers, so it may not make sence, and (2) the VM may
-        // processing them together.
-
-        // VM-specific weak ref processing
-        // The `VMProcessWeakRefs` work packet is set as the sentinel so that it is executed when
-        // the `VMRefClosure` bucket is drained.  The VM binding may spawn new work packets into
-        // the `VMRefClosure` bucket, and request another `VMProcessWeakRefs` work packet to be
-        // executed again after this bucket is drained again.  Strictly speaking, the first
-        // `VMProcessWeakRefs` packet can be an ordinary packet (doesn't have to be a sentinel)
-        // because there are no other packets in the bucket.  We set it as sentinel for
-        // consistency.
-        self.work_buckets[WorkBucketStage::VMRefClosure]
-            .set_sentinel(Box::new(VMProcessWeakRefs::<C::DefaultTrace>::new()));
-
-        if plan.constraints().needs_forward_after_liveness {
-            // VM-specific weak ref forwarding
-            self.work_buckets[WorkBucketStage::VMRefForwarding]
-                .add(VMForwardWeakRefs::<C::DefaultTrace>::new());
-        }
-
-        self.work_buckets[WorkBucketStage::Release].add(VMPostForwarding::<VM>::default());
     }
 
     fn are_buckets_drained(&self, buckets: &[WorkBucketStage]) -> bool {

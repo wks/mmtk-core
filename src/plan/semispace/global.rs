@@ -3,6 +3,7 @@ use crate::plan::global::CommonPlan;
 use crate::plan::global::CreateGeneralPlanArgs;
 use crate::plan::global::CreateSpecificPlanArgs;
 use crate::plan::semispace::mutator::ALLOCATOR_MAPPING;
+use crate::plan::tracing::gc_work::schedule_common_work;
 use crate::plan::AllocationSemantics;
 use crate::plan::Plan;
 use crate::plan::PlanConstraints;
@@ -64,7 +65,7 @@ impl<VM: VMBinding> Plan for SemiSpace<VM> {
     }
 
     fn schedule_collection(&'static self, scheduler: &GCWorkScheduler<VM>) {
-        scheduler.schedule_common_work::<SSGCWorkContext<VM>>(self);
+        schedule_common_work::<SSGCWorkContext<VM>>(scheduler, self);
     }
 
     fn get_allocator_mapping(&self) -> &'static EnumMap<AllocationSemantics, AllocatorSelector> {
