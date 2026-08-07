@@ -13,7 +13,7 @@ use crate::util::constants::LOG_BYTES_IN_PAGE;
 use crate::util::heap::chunk_map::*;
 use crate::util::heap::BlockPageResource;
 use crate::util::heap::PageResource;
-use crate::util::linear_scan::{Region, RegionIterator};
+use crate::util::linear_scan::{Region, RegionIterator, UnstraddlableRegion};
 use crate::util::metadata::log_bit::UnlogBitsOperation;
 use crate::util::metadata::side_metadata::SideMetadataSpec;
 #[cfg(feature = "vo_bit")]
